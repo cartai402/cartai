@@ -5,7 +5,6 @@ import { auth, db } from "../firebase";
 import { ref, onValue, set, update } from "firebase/database";
 import clsx from "clsx";
 
-/* Utilidades */
 const COP = (n) => n.toLocaleString("es-CO");
 const hoyISO = () => new Date().toISOString().split("T")[0];
 const diasEntre = (isoDate) => {
@@ -17,21 +16,16 @@ const diasEntre = (isoDate) => {
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
-  const [sidebar, setSidebar] = useState(false);
-  const [mostrarModal, setMostrarModal] = useState(false);
+  const [iaModal, setIaModal] = useState(false);
 
   useEffect(() => {
-    const offAuth = onAuthStateChanged(auth, (user) => {
+    const unsub = onAuthStateChanged(auth, (user) => {
       if (!user) return;
       const uid = user.uid;
       const userRef = ref(db, `usuarios/${uid}`);
-
       onValue(userRef, (snap) => {
-        if (snap.exists()) {
-          const val = snap.val();
-          setData(val);
-          if (!val.iaActiva) setMostrarModal(true);
-        } else {
+        if (snap.exists()) setData(snap.val());
+        else {
           const def = {
             iaActiva: false,
             iaSaldo: 0,
@@ -45,23 +39,20 @@ export default function Dashboard() {
           };
           set(userRef, def);
           setData(def);
-          setMostrarModal(true);
         }
       });
     });
-    return () => offAuth();
+    return () => unsub();
   }, []);
 
   const activarIA = () => {
     const uid = auth.currentUser.uid;
-    const hoy = hoyISO();
     update(ref(db, `usuarios/${uid}`), {
       iaActiva: true,
-      iaInicio: hoy,
-      iaUltimoReclamo: null,
-      iaSaldo: 0,
+      iaInicio: hoyISO(),
+      iaUltimoReclamo: "",
     });
-    setMostrarModal(false);
+    setIaModal(false);
   };
 
   const reclamarIA = () => {
@@ -78,8 +69,8 @@ export default function Dashboard() {
 
   if (!data) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black text-white animate-pulse">
-        Cargando panel…
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        Cargando...
       </div>
     );
   }
@@ -99,188 +90,206 @@ export default function Dashboard() {
 
   const IA_DIAS_TOTALES = 60;
   const iaDiasPasados = iaInicio ? diasEntre(iaInicio) : 0;
-  const iaPct = Math.min(Math.round((iaDiasPasados / IA_DIAS_TOTALES) * 100), 100);
-  const iaPuedeReclamar = iaActiva && iaUltimoReclamo !== hoyISO() && iaDiasPasados < IA_DIAS_TOTALES;
+  const iaPct = Math.min(
+    Math.round((iaDiasPasados / IA_DIAS_TOTALES) * 100),
+    100
+  );
+  const iaPuedeReclamar =
+    iaActiva && iaUltimoReclamo !== hoyISO() && iaDiasPasados < IA_DIAS_TOTALES;
 
-  const packs = Object.values(paquetes).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-  const movs = [...movimientos].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 5);
+  const packs = Object.values(paquetes).sort(
+    (a, b) => new Date(a.fecha) - new Date(b.fecha)
+  );
+  const movs = [...movimientos]
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+    .slice(0, 5);
 
   return (
-    <div className="min-h-screen bg-gradient-to-tr from-[#0f2027] via-[#203a43] to-[#2c5364] text-white">
-      {mostrarModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4">
-          <div className="bg-white text-black rounded-lg shadow-2xl max-w-md w-full p-6 space-y-4">
-            <h2 className="text-2xl font-bold">🎉 ¡Felicidades!</h2>
-            <p>Has sido seleccionado para usar nuestra IA gratuita durante 60 días.</p>
-            <ul className="list-disc pl-5 text-sm text-gray-700">
-              <li>Recibirás $1.000 diarios automáticamente.</li>
-              <li>Los fondos se suman a tu saldo de bonos.</li>
-              <li>No tienes que hacer nada, solo reclamar diario.</li>
-            </ul>
+    <div className="min-h-screen bg-gradient-to-tr from-[#0f2027] via-[#203a43] to-[#2c5364] text-white px-4">
+      {/* Botones fijos arriba */}
+      <nav className="flex flex-wrap gap-3 justify-center py-6">
+        <MenuButton to="/dashboard" emoji="🏠" label="Dashboard" />
+        <MenuButton to="/invest" emoji="💼" label="Invertir" />
+        <MenuButton to="/withdraw" emoji="💸" label="Retirar" />
+        <MenuButton to="/referrals" emoji="📨" label="Invitar" />
+        <MenuButton to="/game" emoji="🎮" label="Jugar" />
+      </nav>
+
+      {/* Modal IA */}
+      {!iaActiva && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center">
+          <div className="bg-white text-black rounded-lg shadow-2xl max-w-lg p-6 space-y-4 text-center">
+            <h2 className="text-2xl font-bold text-green-700">
+              ¡Felicidades! 🎉
+            </h2>
+            <p>
+              Has sido seleccionado para activar la IA gratuita. Obtén $1.000
+              diarios por 60 días.
+            </p>
+            <p>
+              Esta IA está diseñada para ayudarte a familiarizarte con la
+              inversión recuerda que para retirarlo debes contar con un paquete activo .
+            </p>
             <button
               onClick={activarIA}
-              className="bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded font-bold w-full shadow-lg"
+              className="mt-4 bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded shadow-lg transition"
             >
-              Activar ahora
+              Activar IA gratuita
             </button>
           </div>
         </div>
       )}
 
-      {/* Panel principal */}
-      <main className="max-w-5xl mx-auto px-4 py-8 space-y-12">
-        <header className="text-center space-y-2">
-          <h1 className="text-4xl font-bold">Bienvenido, {nombre} 👋</h1>
-          <p className="text-gray-300">Tu resumen de inversión y avances</p>
-        </header>
+      {/* Saludo */}
+      <div className="text-center mb-10">
+        <h1 className="text-4xl font-bold">Bienvenido, {nombre} 👋</h1>
+        <p className="text-gray-300">Resumen de tu inversión</p>
+      </div>
 
-        {/* Acciones principales */}
-        <section className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <ActionCard to="/invest" icon="💼" label="Invertir" />
-          <ActionCard to="/withdraw" icon="💸" label="Retirar" />
-          <ActionCard to="/referrals" icon="📨" label="Invitar" />
-          <ActionCard to="/game" icon="🎮" label="Jugar" />
+      {/* IA Widget */}
+      {iaActiva && (
+        <section className="bg-white/10 rounded-xl p-6 mb-10 shadow-xl space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-bold text-yellow-300">🤖 IA gratuita</h2>
+            <span className="text-sm">{IA_DIAS_TOTALES - iaDiasPasados} días restantes</span>
+          </div>
+          <p>
+            Saldo acumulado: <strong>${COP(iaSaldo)}</strong>
+          </p>
+          <div className="w-full bg-white/20 rounded-full h-3">
+            <div
+              style={{ width: `${iaPct}%` }}
+              className="h-full bg-gradient-to-r from-yellow-400 to-green-400 rounded-full"
+            />
+          </div>
+          <p className="text-right text-sm">{iaPct}% de $60.000</p>
+          <button
+            onClick={reclamarIA}
+            disabled={!iaPuedeReclamar}
+            className={clsx(
+              "w-full py-2 rounded font-bold transition",
+              iaPuedeReclamar
+                ? "bg-green-400 hover:bg-green-500 text-black shadow-lg"
+                : "bg-gray-400 cursor-not-allowed"
+            )}
+          >
+            {iaPuedeReclamar ? "Reclamar $1 000 de hoy" : "Reclamado hoy"}
+          </button>
         </section>
+      )}
 
-        {/* IA activa */}
-        {iaActiva && (
-          <section className="bg-white/10 rounded-xl p-6 space-y-3 shadow-xl border border-white/10">
-            <h2 className="text-xl font-bold text-yellow-300">🤖 IA Gratuita</h2>
-            <p className="text-sm text-gray-300">
-              Saldo: <strong className="text-white">${COP(iaSaldo)}</strong> | Días restantes:{" "}
-              {IA_DIAS_TOTALES - iaDiasPasados}
-            </p>
-            <div className="w-full bg-white/20 h-3 rounded-full">
-              <div
-                style={{ width: `${iaPct}%` }}
-                className="h-full bg-gradient-to-r from-yellow-400 to-green-400 rounded-full transition-all"
-              ></div>
-            </div>
-            <button
-              onClick={reclamarIA}
-              disabled={!iaPuedeReclamar}
-              className={clsx(
-                "w-full py-2 rounded font-bold transition mt-2",
-                iaPuedeReclamar
-                  ? "bg-green-400 hover:bg-green-500 text-black"
-                  : "bg-gray-500 text-white cursor-not-allowed"
-              )}
-            >
-              {iaPuedeReclamar ? "Reclamar $1.000 de hoy" : "Ya reclamado hoy"}
-            </button>
-          </section>
-        )}
+      {/* Métricas */}
+      <div className="grid sm:grid-cols-3 gap-6 mb-12">
+        <Metric title="Invertido" value={saldoInversion} color="yellow" />
+        <Metric title="Ganado" value={saldoGanado} color="green" />
+        <Metric title="Bonos" value={saldoBonos} color="blue" />
+      </div>
 
-        {/* Métricas */}
-        <section className="grid sm:grid-cols-3 gap-4">
-          <Metric title="Invertido" value={saldoInversion} color="yellow" />
-          <Metric title="Ganado" value={saldoGanado} color="green" />
-          <Metric title="Bonos" value={saldoBonos} color="blue" />
-        </section>
+      {/* Paquetes */}
+      <SectionTitle>📦 Paquetes activos</SectionTitle>
+      {packs.length === 0 ? (
+        <p className="text-gray-300">Aún no tienes paquetes.</p>
+      ) : (
+        <div className="grid lg:grid-cols-2 gap-6 mb-12">
+          {packs.map((p) => (
+            <PackageCard key={p.id} p={p} />
+          ))}
+        </div>
+      )}
 
-        {/* Paquetes activos */}
-        <section className="space-y-3">
-          <h2 className="text-2xl font-bold">📦 Paquetes activos</h2>
-          {packs.length === 0 ? (
-            <p className="text-gray-400">No tienes paquetes aún.</p>
-          ) : (
-            <div className="grid lg:grid-cols-2 gap-6">
-              {packs.map((p) => (
-                <PackageCard key={p.id} p={p} />
-              ))}
-            </div>
-          )}
-        </section>
+      {/* Movimientos */}
+      <SectionTitle>📝 Últimos movimientos</SectionTitle>
+      <MovList movs={movs} />
 
-        {/* Movimientos */}
-        <section className="space-y-3">
-          <h2 className="text-2xl font-bold">📝 Últimos movimientos</h2>
-          {movs.length === 0 ? (
-            <p className="text-gray-400">Sin movimientos recientes.</p>
-          ) : (
-            <ul className="space-y-2">
-              {movs.map((m, i) => (
-                <li
-                  key={i}
-                  className="bg-white/10 rounded-lg p-4 flex justify-between items-center border border-white/20 shadow-md"
-                >
-                  <span>{m.concepto}</span>
-                  <span
-                    className={clsx(
-                      "font-semibold",
-                      m.monto.startsWith("-") ? "text-red-400" : "text-green-400"
-                    )}
-                  >
-                    {m.monto}
-                  </span>
-                  <span className="text-xs text-gray-400">{m.fecha}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {/* Por qué invertir con nosotros */}
-        <section className="bg-white/10 p-6 rounded-xl border border-white/20 shadow-2xl space-y-3">
-          <h2 className="text-2xl font-bold text-yellow-400">🌟 ¿Por qué invertir con nosotros?</h2>
-          <ul className="list-disc pl-5 text-gray-300 space-y-1">
-            <li>Rendimientos diarios garantizados.</li>
-            <li>Acceso exclusivo a IA gratuita durante 60 días.</li>
-            <li>Retiros rápidos y transparentes.</li>
-            <li>Bonos por referidos y recompensas automáticas.</li>
-            <li>Interfaz profesional y fácil de usar.</li>
-          </ul>
-        </section>
-      </main>
+      {/* Final */}
+      <SectionTitle>🌟 ¿Por qué invertir con nosotros?</SectionTitle>
+      <div className="bg-white/10 p-6 rounded-xl text-sm text-gray-200 shadow-xl leading-relaxed mb-10">
+        <p>
+          CartAI combina tecnología de punta con simulación real de mercados
+          para ofrecerte una experiencia educativa y rentable. Nuestra IA
+          gratuita es solo el comienzo: al invertir con nosotros, accedes a
+          paquetes con rentabilidad asegurada, atención personalizada y una
+          comunidad en crecimiento. Ideal tanto para principiantes como para
+          inversionistas experimentados.
+        </p>
+      </div>
     </div>
   );
 }
 
-/* COMPONENTES */
-const ActionCard = ({ to, icon, label }) => (
+const MenuButton = ({ to, emoji, label }) => (
   <Link
     to={to}
-    className="bg-yellow-400 hover:bg-yellow-500 text-black font-bold text-lg py-6 rounded-xl flex flex-col items-center justify-center shadow-lg hover:scale-105 transition-all"
+    className="bg-white/10 hover:bg-white/20 text-white px-5 py-2 rounded-lg shadow-lg font-bold transition transform hover:scale-105"
   >
-    <span className="text-3xl mb-2">{icon}</span>
-    {label}
+    {emoji} {label}
   </Link>
 );
 
-const Metric = ({ title, value, color }) => {
-  const colorClass =
+const SectionTitle = ({ children }) => (
+  <h2 className="text-2xl font-semibold border-b border-white/20 pb-2 mb-4">
+    {children}
+  </h2>
+);
+
+function Metric({ title, value, color }) {
+  const c =
     color === "green"
       ? "text-green-400"
       : color === "blue"
       ? "text-blue-400"
       : "text-yellow-400";
   return (
-    <div className="bg-white/10 rounded-xl border border-white/20 shadow-xl p-6 text-center">
+    <div className="bg-white/10 rounded-xl p-6 text-center shadow-lg">
       <p className="text-sm text-gray-300">{title}</p>
-      <h3 className={`text-3xl font-bold ${colorClass}`}>${COP(value)}</h3>
+      <h3 className={`text-3xl font-bold ${c}`}>${COP(value)}</h3>
     </div>
   );
-};
+}
 
 const PackageCard = ({ p }) => {
-  const pct = Math.round(((p.diasTotales - p.diasRestantes) / p.diasTotales) * 100);
+  const pct = Math.round(
+    ((p.diasTotales - p.diasRestantes) / p.diasTotales) * 100
+  );
   return (
-    <div className="bg-white/10 rounded-xl border border-white/20 shadow-xl p-6 space-y-4">
-      <header className="flex justify-between">
-        <h4 className="text-lg font-bold">{p.nombre}</h4>
+    <div className="bg-white/10 rounded-xl p-6 shadow-lg space-y-3">
+      <div className="flex justify-between">
+        <h4 className="font-bold">{p.nombre}</h4>
         <span className="text-sm text-gray-300">
-          {p.diasRestantes} / {p.diasTotales} d
+          {p.diasRestantes}/{p.diasTotales} días
         </span>
-      </header>
+      </div>
       <p className="text-sm">💸 Invertido: ${COP(p.invertido)}</p>
-      <p className="text-sm">🏁 Recibirás: ${COP(p.total)}</p>
-      <div className="w-full bg-white/25 rounded-full h-3">
+      <p className="text-sm">🏁 Total: ${COP(p.total)}</p>
+      <div className="w-full bg-white/20 h-3 rounded-full">
         <div
           style={{ width: `${pct}%` }}
-          className="h-full bg-gradient-to-r from-yellow-400 to-green-400"
+          className="h-full bg-gradient-to-r from-yellow-400 to-green-400 rounded-full"
         />
       </div>
       <p className="text-right text-xs">{pct}%</p>
     </div>
   );
 };
+
+const MovList = ({ movs }) => (
+  <ul className="space-y-3 mb-10">
+    {movs.map((m, idx) => (
+      <li
+        key={idx}
+        className="bg-white/10 p-4 rounded-lg flex justify-between items-center shadow"
+      >
+        <span>{m.concepto}</span>
+        <span
+          className={clsx(
+            "font-semibold",
+            m.monto.startsWith("-") ? "text-red-400" : "text-green-400"
+          )}
+        >
+          {m.monto}
+        </span>
+        <span className="text-xs text-gray-400">{m.fecha}</span>
+      </li>
+    ))}
+  </ul>
+);
