@@ -4,182 +4,212 @@ import { getDatabase, ref, onValue, update } from 'firebase/database';
 import { getAuth, signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 
-const Dashboard = () => {
+/* ==== helpers ==== */
+const COP = n => n?.toLocaleString('es-CO') ?? '0';
+
+export default function Dashboard() {
   const auth = getAuth();
   const navigate = useNavigate();
-  const user = auth.currentUser;
-  const db = getDatabase();
+  const db  = getDatabase();
+  const usr = auth.currentUser;
 
-  const [data, setData] = useState(null);
-  const [showModal, setShowModal] = useState(false);
+  const [data, setData]     = useState(null);
+  const [showIA, setShowIA] = useState(false);
 
+  /** ───── carga desde RTDB ───── */
   useEffect(() => {
-    if (user) {
-      const userRef = ref(db, 'usuarios/' + user.uid);
-      onValue(userRef, (snapshot) => {
-        setData(snapshot.val());
-        if (!snapshot.val()?.iaActiva) {
-          setShowModal(true);
-        }
-      });
-    }
-  }, [user]);
+    if (!usr) return;
+    const userRef = ref(db, 'usuarios/' + usr.uid);
+    onValue(userRef, snap => {
+      const d = snap.val();
+      setData(d);
+      if (!d?.iaActiva) setShowIA(true);
+    });
+  }, [usr]);
 
+  /** ───── activar IA gratis ───── */
   const activarIA = () => {
-    update(ref(db, 'usuarios/' + user.uid), {
+    update(ref(db, 'usuarios/' + usr.uid), {
       iaActiva: true,
       iaSaldo: 1000,
       iaDiasRestantes: 60,
-      iaReclamado: false,
+      iaReclamado   : false,
     });
-    setShowModal(false);
+    setShowIA(false);
   };
 
-  const reclamarIA = () => {
-    if (!data.iaReclamado && data.iaDiasRestantes > 0) {
-      update(ref(db, 'usuarios/' + user.uid), {
-        iaSaldo: data.iaSaldo + 1000,
-        iaDiasRestantes: data.iaDiasRestantes - 1,
-        iaReclamado: true,
-      });
-    }
+  /** ───── reclamar IA diaria ───── */
+  const reclamar = () => {
+    if (!data || data.iaReclamado || data.iaDiasRestantes <= 0) return;
+    update(ref(db, 'usuarios/' + usr.uid), {
+      iaSaldo        : data.iaSaldo + 1000,
+      iaDiasRestantes: data.iaDiasRestantes - 1,
+      iaReclamado    : true,
+    });
   };
 
-  const cerrarSesion = () => {
-    signOut(auth);
-    navigate('/');
-  };
+  const logout = () => { signOut(auth); navigate('/'); };
 
+  if (!data)
+    return <Loader />;
+
+  /* ========== UI ========== */
   return (
-    <div style={{ backgroundColor: '#0a0f1e', minHeight: '100vh', color: 'white', padding: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
-        {['Dashboard', 'Invertir', 'Retirar', 'Invitar', 'Jugar'].map((item, index) => (
-          <a key={index} href={`/${item.toLowerCase()}`} style={{
-            background: '#1d273b',
-            color: 'white',
-            padding: '10px 20px',
-            borderRadius: 10,
-            textDecoration: 'none',
-            boxShadow: '2px 2px 5px black'
-          }}>{item}</a>
-        ))}
-        <button onClick={cerrarSesion} style={{
-          background: '#005eff',
-          color: 'white',
-          padding: '10px 20px',
-          borderRadius: 10,
-          border: 'none',
-          boxShadow: '2px 2px 5px black',
-          cursor: 'pointer'
-        }}>Cerrar sesión</button>
+    <div style={styles.bg}>
+      {/* NAV buttons */}
+      <div style={styles.navWrap}>
+        <NavBtn emoji="🏠" text="Dashboard" to="/dashboard" />
+        <NavBtn emoji="💼" text="Invertir"  to="/invest" />
+        <NavBtn emoji="💸" text="Retirar"   to="/withdraw" />
+        <NavBtn emoji="📨" text="Invitar"   to="/referrals" />
+        <NavBtn emoji="🎮" text="Jugar"     to="/game" />
+        <button onClick={logout} style={styles.logout}>Cerrar sesión</button>
       </div>
 
-      <h1 style={{ fontSize: 32, marginBottom: 10 }}>Bienvenido, {user?.displayName || 'Usuario'} 👋</h1>
-      <h3 style={{ marginBottom: 30 }}>Resumen de tu inversión</h3>
+      {/* Saludo */}
+      <h1 style={styles.h1}>
+        Bienvenido, {usr.displayName?.split('|')[0] ?? 'Usuario'} 👋
+      </h1>
+      <p style={styles.subtitle}>Resumen de tu inversión</p>
 
-      {/* IA GRATUITA */}
-      {data?.iaActiva && (
-        <div style={{
-          background: '#152037',
-          padding: 20,
-          borderRadius: 10,
-          marginBottom: 20,
-          boxShadow: '2px 2px 8px black'
-        }}>
-          <h2>🤖 IA gratuita</h2>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Saldo acumulado: <b>${data.iaSaldo.toLocaleString()}</b></span>
-            <span>{data.iaDiasRestantes} días restantes</span>
-          </div>
-          <div style={{ marginTop: 10, marginBottom: 10 }}>
-            <div style={{
-              backgroundColor: '#ddd',
-              borderRadius: 20,
-              height: 30,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 'bold',
-              color: '#555',
-            }}>
-              {data.iaReclamado ? 'Reclamado hoy' : (
-                <button onClick={reclamarIA} style={{
-                  backgroundColor: '#00c853',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: 20,
-                  padding: '5px 20px',
-                  cursor: 'pointer'
-                }}>
-                  Reclamar $1.000
-                </button>
-              )}
-            </div>
-          </div>
-          <p style={{ fontSize: 12, color: '#aaa' }}>0% de $60.000</p>
-        </div>
+      {/* ==== IA gratuita ==== */}
+      {data.iaActiva && (
+        <Card>
+          <h2 style={styles.cardTitle}>🤖 IA gratuita</h2>
+          <p>Saldo acumulado: <b>${COP(data.iaSaldo)}</b></p>
+          <p><small>{data.iaDiasRestantes} días restantes</small></p>
+
+          <Progress pct={100 - (data.iaDiasRestantes / 60) * 100} />
+
+          <button
+            onClick={reclamar}
+            disabled={data.iaReclamado}
+            style={{
+              ...styles.cta,
+              backgroundColor: data.iaReclamado ? '#555' : '#00c853',
+              cursor : data.iaReclamado ? 'default' : 'pointer'
+            }}
+          >
+            {data.iaReclamado ? 'Reclamado hoy' : 'Reclamar $1.000'}
+          </button>
+        </Card>
       )}
 
-      {/* ACTIVAR IA MODAL */}
-      {showModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-          backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex',
-          justifyContent: 'center', alignItems: 'center', zIndex: 9999
-        }}>
-          <div style={{
-            backgroundColor: '#1a2238',
-            padding: 30,
-            borderRadius: 15,
-            maxWidth: 400,
-            color: 'white',
-            textAlign: 'center',
-            boxShadow: '2px 2px 10px black'
-          }}>
-            <h2>🎉 ¡Felicidades!</h2>
-            <p>Has sido seleccionado para usar la IA gratuita de CartAI.</p>
-            <p>Obtendrás $1.000 diarios durante 60 días sin costo alguno.</p>
-            <button onClick={activarIA} style={{
-              marginTop: 20,
-              backgroundColor: '#00c853',
-              color: 'white',
-              padding: '10px 20px',
-              border: 'none',
-              borderRadius: 10,
-              cursor: 'pointer',
-              fontWeight: 'bold'
-            }}>Activar IA gratuita</button>
-          </div>
-        </div>
-      )}
-
-      {/* SALDOS */}
-      <div style={{ marginTop: 30 }}>
-        <h3>Invertido</h3>
-        <p><b>${data?.invertido?.toLocaleString() || 0}</b></p>
-
-        <h3>Ganado</h3>
-        <p><b>${data?.ganado?.toLocaleString() || 0}</b></p>
-
-        <h3>Bonos</h3>
-        <p><b>${data?.bonos?.toLocaleString() || 0}</b></p>
+      {/* ==== métricas ==== */}
+      <div style={styles.metricsWrap}>
+        <Metric label="Invertido" val={data.invertido ?? 0} />
+        <Metric label="Ganado"   val={data.ganado   ?? 0} />
+        <Metric label="Bonos"    val={data.bonos    ?? 0} />
       </div>
 
-      {/* PAQUETES ACTIVOS */}
-      <div style={{ marginTop: 30 }}>
-        <h3>📦 Paquetes activos</h3>
-        {data?.paquetes ? (
-          <ul>
-            {Object.entries(data.paquetes).map(([id, p]) => (
-              <li key={id}>{p.nombre} - ${p.valor}</li>
-            ))}
-          </ul>
-        ) : (
-          <p>Aún no tienes paquetes.</p>
-        )}
-      </div>
+      {/* ==== paquetes ==== */}
+      <h3 style={styles.section}>📦 Paquetes activos</h3>
+      {data.paquetes
+        ? Object.entries(data.paquetes).map(([id, p]) => (
+            <Card key={id}>
+              <b>{p.nombre}</b><br />
+              ${COP(p.valor)}
+            </Card>
+          ))
+        : <p style={{color:'#9ca3af'}}>Aún no tienes paquetes.</p>
+      }
+
+      {/* ==== modal activar IA ==== */}
+      {showIA && <Modal onClose={()=>setShowIA(false)} onOk={activarIA} />}
     </div>
   );
-};
+}
 
-export default Dashboard;
+/* ==== COMPONENTES AUX ==== */
+const Loader = () => (
+  <div style={{...styles.bg, justifyContent:'center', alignItems:'center'}}>
+    Cargando…
+  </div>
+);
+
+const NavBtn = ({emoji, text, to}) => (
+  <a href={to} style={styles.navBtn}>
+    <span style={{fontSize:20}}>{emoji}</span> {text}
+  </a>
+);
+
+const Card = ({ children }) => (
+  <div style={styles.card}>{children}</div>
+);
+
+const Metric = ({label,val})=>(
+  <Card>
+    <p style={{opacity:.7, fontSize:14}}>{label}</p>
+    <h2>${COP(val)}</h2>
+  </Card>
+);
+
+const Progress = ({pct})=>(
+  <div style={{background:'#333',borderRadius:8,overflow:'hidden',height:14,margin:'10px 0'}}>
+    <div style={{width:`${pct}%`,background:'linear-gradient(90deg,#ffe259,#ffa751)',height:'100%'}}/>
+  </div>
+);
+
+const Modal = ({onClose,onOk})=>(
+  <div style={styles.modalOverlay}>
+    <div style={styles.modalBox}>
+      <h2 style={{marginBottom:10}}>🎉 ¡Felicidades!</h2>
+      <p style={{marginBottom:20,fontSize:14,lineHeight:1.4}}>
+        Tienes acceso a la IA gratuita de CartAI.<br/>
+        Recibe <b>$1.000 COP</b> diarios por 60 días.
+      </p>
+      <button onClick={onOk} style={{...styles.cta,width:'100%'}}>Activar IA gratuita</button>
+      <button onClick={onClose} style={{...styles.linkBtn,marginTop:10}}>Ahora no</button>
+    </div>
+  </div>
+);
+
+/* ==== ESTILOS EN OBJETO (inline) ==== */
+const styles = {
+  bg:{background:'#0a0f1e',minHeight:'100vh',color:'white',padding:15},
+  navWrap:{display:'flex',flexWrap:'wrap',gap:12,marginBottom:25},
+  navBtn:{
+    background:'#1d273b',padding:'10px 18px',
+    borderRadius:12,color:'white',textDecoration:'none',
+    display:'flex',alignItems:'center',gap:6,
+    boxShadow:'3px 3px 6px #0007'
+  },
+  logout:{
+    background:'#ff1744',border:'none',borderRadius:12,
+    color:'white',padding:'10px 18px',fontWeight:'bold',
+    boxShadow:'3px 3px 6px #0007'
+  },
+  h1:{fontSize:28,fontWeight:600,margin:0},
+  subtitle:{opacity:.8,marginBottom:25},
+  card:{
+    background:'#152037',
+    padding:20,
+    borderRadius:15,
+    marginBottom:20,
+    boxShadow:'4px 4px 12px #000a'
+  },
+  cardTitle:{marginTop:0},
+  cta:{
+    border:'none',
+    padding:'10px 18px',
+    borderRadius:12,
+    fontWeight:'bold',
+    color:'white',
+    boxShadow:'2px 2px 6px #0007'
+  },
+  metricsWrap:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:15},
+  section:{margin:'25px 0 10px'},
+  modalOverlay:{
+    position:'fixed',inset:0,background:'rgba(0,0,0,.8)',
+    display:'flex',justifyContent:'center',alignItems:'center'
+  },
+  modalBox:{
+    background:'#1d273b',
+    padding:30,borderRadius:20,maxWidth:320,textAlign:'center',
+    boxShadow:'4px 4px 12px #000c'
+  },
+  linkBtn:{
+    background:'none',border:'none',color:'#9ca3af',
+    textDecoration:'underline',cursor:'pointer'
+  }
+};
