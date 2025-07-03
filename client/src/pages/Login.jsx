@@ -33,63 +33,127 @@ export default function Login() {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-6 py-12 bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#111827]">
-      <div className="w-full max-w-md bg-[#1f2a3a] border border-white/20 rounded-3xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-8 text-white animate-fade-in">
+    <main style={styles.bg}>
+      {/* Logo */}
+      <img src={logo} alt="CartAI logo" style={styles.logo} />
 
-        {/* Logo */}
-        <div className="flex justify-center mb-6">
-          <img
-            src={logo}
-            alt="CartAI logo"
-            className="h-20 drop-shadow-xl animate-bounce"
-          />
-        </div>
+      <h1 style={styles.h1}>Iniciar sesión</h1>
 
-        <h2 className="text-3xl sm:text-4xl font-extrabold text-center mb-8">
-          Bienvenido de nuevo
-        </h2>
+      {errorMsg && (
+        <p style={styles.errorMsg}>{errorMsg}</p>
+      )}
 
-        {errorMsg && (
-          <p className="text-red-400 text-center mb-4 text-sm animate-pulse">{errorMsg}</p>
-        )}
+      <form onSubmit={handleLogin} style={styles.form}>
+        <input
+          type="text"
+          placeholder="Correo o número de teléfono"
+          value={userInput}
+          onChange={(e) => setUserInput(e.target.value)}
+          required
+          style={styles.input}
+        />
 
-        <form onSubmit={handleLogin} className="space-y-5">
-          <input
-            type="text"
-            placeholder="Correo o número de teléfono"
-            value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            className="w-full px-5 py-3 rounded-xl bg-white/10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 transition duration-200"
-            required
-          />
+        <input
+          type="password"
+          placeholder="Contraseña"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          style={styles.input}
+        />
 
-          <input
-            type="password"
-            placeholder="Contraseña"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-5 py-3 rounded-xl bg-white/10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 transition duration-200"
-            required
-          />
+        <button type="submit" style={{ ...styles.btn3d, ...styles.btnGold }}>
+          🚀 Ingresar
+        </button>
+      </form>
 
-          <button
-            type="submit"
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-yellow-400 to-yellow-600 text-black font-bold text-lg hover:from-yellow-300 hover:to-yellow-500 shadow-xl hover:scale-105 transition-transform duration-300"
-          >
-            Ingresar
-          </button>
-        </form>
-
-        <p className="text-center mt-6 text-sm text-gray-300">
-          ¿No tienes cuenta?{" "}
-          <Link
-            to="/register"
-            className="text-yellow-300 hover:underline font-medium"
-          >
-            Regístrate aquí
-          </Link>
-        </p>
-      </div>
+      <p style={styles.subText}>
+        ¿No tienes cuenta?{" "}
+        <Link to="/register" style={styles.link}>
+          Regístrate aquí
+        </Link>
+      </p>
     </main>
   );
 }
+
+/* ─────────────── Estilos inline coherentes con Home.jsx ─────────────── */
+const styles = {
+  bg: {
+    minHeight: "100vh",
+    padding: "60px 20px",
+    background: "linear-gradient(135deg,#0f172a,#1e293b 40%,#065f46)",
+    backgroundSize: "600% 600%",
+    animation: "floatBg 30s linear infinite",
+    color: "#fff",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+  },
+  logo: {
+    width: 100,
+    filter: "drop-shadow(0 4px 8px #000a)",
+    marginBottom: 28,
+  },
+  h1: {
+    fontSize: "2rem",
+    fontWeight: 800,
+    marginBottom: 24,
+    textAlign: "center",
+  },
+  form: {
+    width: "100%",
+    maxWidth: 400,
+    display: "flex",
+    flexDirection: "column",
+    gap: 18,
+  },
+  input: {
+    padding: "14px 18px",
+    borderRadius: 14,
+    background: "rgba(255,255,255,0.07)",
+    border: "none",
+    color: "#fff",
+    fontSize: "1rem",
+    outline: "none",
+    boxShadow: "inset 0 0 4px #ffffff22",
+  },
+  btn3d: {
+    padding: "14px 30px",
+    borderRadius: 18,
+    fontWeight: 700,
+    fontSize: "1.05rem",
+    textDecoration: "none",
+    boxShadow: "4px 4px 14px #000a",
+    transition: "transform 0.2s, box-shadow 0.2s",
+    cursor: "pointer",
+    border: "none",
+  },
+  btnGold: {
+    background: "linear-gradient(90deg,#facc15,#eab308)",
+    color: "#000",
+  },
+  subText: {
+    marginTop: 30,
+    textAlign: "center",
+    fontSize: 14,
+    opacity: 0.85,
+  },
+  link: {
+    color: "#facc15",
+    fontWeight: 600,
+    textDecoration: "underline",
+  },
+  errorMsg: {
+    background: "#dc2626",
+    color: "#fff",
+    padding: "8px 16px",
+    borderRadius: 12,
+    marginBottom: 16,
+    fontWeight: 600,
+    fontSize: 14,
+    textAlign: "center",
+    boxShadow: "0 2px 6px #0008",
+  },
+};
+
