@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "../firebase";
 import { ref, onValue, set, update } from "firebase/database";
 import clsx from "clsx";
 
+/* Utilidades ------------------------------------------------------------- */
 const COP = (n) => n.toLocaleString("es-CO");
 const hoyISO = () => new Date().toISOString().split("T")[0];
 const diasEntre = (isoDate) => {
@@ -16,18 +17,18 @@ const diasEntre = (isoDate) => {
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
+  const [sidebar, setSidebar] = useState(true);
   const [showIAInfo, setShowIAInfo] = useState(false);
-  const navigate = useNavigate();
 
   useEffect(() => {
-    const offAuth = onAuthStateChanged(auth, (user) => {
+    const unsub = onAuthStateChanged(auth, (user) => {
       if (!user) return;
       const uid = user.uid;
       const userRef = ref(db, `usuarios/${uid}`);
+
       onValue(userRef, (snap) => {
-        if (snap.exists()) {
-          setData(snap.val());
-        } else {
+        if (snap.exists()) setData(snap.val());
+        else {
           const def = {
             iaActiva: false,
             iaSaldo: 0,
@@ -44,7 +45,7 @@ export default function Dashboard() {
         }
       });
     });
-    return () => offAuth();
+    return () => unsub();
   }, []);
 
   const reclamarIA = () => {
@@ -61,16 +62,6 @@ export default function Dashboard() {
     });
   };
 
-  const activarIA = () => {
-    const uid = auth.currentUser.uid;
-    update(ref(db, `usuarios/${uid}`), {
-      iaActiva: true,
-      iaInicio: hoyISO(),
-      iaSaldo: 0,
-    });
-    setShowIAInfo(false);
-  };
-
   if (!data) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white animate-pulse">
@@ -79,6 +70,7 @@ export default function Dashboard() {
     );
   }
 
+  const [nombre] = auth.currentUser.displayName?.split("|") || ["Usuario"];
   const {
     iaActiva,
     iaSaldo = 0,
@@ -91,89 +83,52 @@ export default function Dashboard() {
     movimientos = [],
   } = data;
 
-  const nombre = auth.currentUser.displayName?.split("|")[0] || "Usuario";
-  const correo = auth.currentUser.email;
-
   const IA_DIAS_TOTALES = 60;
   const iaDiasPasados = iaInicio ? diasEntre(iaInicio) : 0;
-  const iaPct = Math.min(
-    Math.round((iaDiasPasados / IA_DIAS_TOTALES) * 100),
-    100
-  );
-  const iaPuedeReclamar =
-    iaActiva && iaUltimoReclamo !== hoyISO() && iaDiasPasados < IA_DIAS_TOTALES;
-
-  const packs = Object.values(paquetes).sort(
-    (a, b) => new Date(a.fecha) - new Date(b.fecha)
-  );
-  const movs = [...movimientos]
-    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
-    .slice(0, 5);
+  const iaPct = Math.min(Math.round((iaDiasPasados / IA_DIAS_TOTALES) * 100), 100);
+  const iaPuedeReclamar = iaActiva && iaUltimoReclamo !== hoyISO() && iaDiasPasados < IA_DIAS_TOTALES;
+  const packs = Object.values(paquetes).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  const movs = [...movimientos].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 5);
 
   return (
-    <div className="min-h-screen bg-gradient-to-tr from-[#0f2027] via-[#203a43] to-[#2c5364] text-white">
-      {/* HEADER fijo */}
-      <header className="flex justify-between items-center p-4 bg-white/10 backdrop-blur border-b border-white/20 shadow-md">
-        <div className="font-bold text-yellow-400 text-xl">CartAI</div>
-        <div className="text-sm flex items-center gap-4">
-          <span className="hidden sm:block">{correo}</span>
-          <button
-            onClick={() => signOut(auth).then(() => navigate("/login"))}
-            className="px-3 py-1 bg-red-500 hover:bg-red-600 rounded text-white text-sm"
-          >
-            Cerrar sesión
-          </button>
-        </div>
-      </header>
+    <div className="min-h-screen flex bg-gradient-to-tr from-[#0f2027] via-[#203a43] to-[#2c5364] text-white">
+      <Sidebar open={sidebar} toggle={() => setSidebar(!sidebar)} />
 
-      {/* Botonera principal */}
-      <nav className="flex justify-center flex-wrap gap-4 p-4 text-lg font-semibold">
-        <NavLink to="/dashboard" label="🏠 Dashboard" />
-        <NavLink to="/invest" label="💼 Invertir" />
-        <NavLink to="/withdraw" label="💸 Retirar" />
-        <NavLink to="/referrals" label="📨 Referidos" />
-        <NavLink to="/game" label="🎮 Jugar" />
-      </nav>
+      <main className="flex-1 p-6 md:ml-64 space-y-12">
+        <header className="text-center space-y-1">
+          <h1 className="text-4xl font-bold">Bienvenido, {nombre} 👋</h1>
+          <p className="text-gray-300">
+            Todo tu resumen de inversión en un solo lugar
+          </p>
+        </header>
 
-      {/* CONTENIDO */}
-      <main className="p-6 space-y-12 max-w-5xl mx-auto">
-        {/* Pestaña flotante de IA si no activa */}
-        {!iaActiva && !showIAInfo && (
-          <div className="fixed bottom-6 right-6 bg-yellow-400 text-black p-4 rounded-xl shadow-lg cursor-pointer animate-bounce" onClick={() => setShowIAInfo(true)}>
-            🎁 ¡Activa tu IA gratuita!
-          </div>
-        )}
-
-        {/* Modal de IA */}
-        {showIAInfo && (
-          <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-6">
-            <div className="bg-white text-black rounded-xl p-6 max-w-md w-full space-y-4">
-              <h2 className="text-2xl font-bold">🤖 Inteligencia Artificial gratuita</h2>
+        {!iaActiva && (
+          <div className="bg-black/70 backdrop-blur-md fixed inset-0 z-50 flex items-center justify-center">
+            <div className="bg-white text-black p-6 rounded-xl shadow-2xl max-w-md space-y-4 text-center">
+              <h2 className="text-2xl font-bold">¡Felicidades!</h2>
               <p>
-                Recibe $1 000 cada día durante 60 días solo por registrarte. Este beneficio es único y se acredita como bono.
+                Has sido seleccionado para acceder a la IA gratuita de CartAI.
+                Podrás reclamar $1,000 diarios por 60 días, totalmente gratis.
               </p>
-              <div className="flex justify-end gap-4 pt-4">
-                <button
-                  onClick={() => setShowIAInfo(false)}
-                  className="px-4 py-2 bg-gray-400 rounded hover:bg-gray-500"
-                >
-                  Más tarde
-                </button>
-                <button
-                  onClick={activarIA}
-                  className="px-4 py-2 bg-green-500 rounded hover:bg-green-600 text-white"
-                >
-                  Activar ahora
-                </button>
-              </div>
+              <p>
+                Esta IA está pensada para que descubras cómo puedes generar ingresos de forma automatizada con nuestra tecnología.
+              </p>
+              <button
+                onClick={() => {
+                  const uid = auth.currentUser.uid;
+                  update(ref(db, `usuarios/${uid}`), {
+                    iaActiva: true,
+                    iaInicio: hoyISO(),
+                    iaUltimoReclamo: null,
+                  });
+                }}
+                className="w-full py-2 bg-yellow-400 hover:bg-yellow-500 text-black font-bold rounded shadow"
+              >
+                Activar IA gratuita
+              </button>
             </div>
           </div>
         )}
-
-        <section className="text-center space-y-1">
-          <h1 className="text-4xl font-bold">Bienvenido, {nombre} 👋</h1>
-          <p className="text-gray-300">Resumen de tu actividad en CartAI</p>
-        </section>
 
         {iaActiva && (
           <IAWidget
@@ -209,24 +164,67 @@ export default function Dashboard() {
           <MovList movs={movs} />
         )}
 
-        <SectionTitle>🔍 ¿Por qué invertir con nosotros?</SectionTitle>
-        <div className="bg-white/10 p-6 rounded-xl text-sm space-y-3 leading-relaxed">
-          <p>🌐 Nuestra IA trabaja 24/7 para maximizar tu inversión de forma segura.</p>
-          <p>📈 Obtienes retornos progresivos con paquetes adaptados a tus objetivos.</p>
-          <p>🔐 Tu dinero está respaldado por un sistema de transparencia en tiempo real.</p>
-          <p>🎁 Y además, ¡tienes IA gratuita por solo registrarte!</p>
+        {/* Apartado final profesional */}
+        <SectionTitle>💡 ¿Por qué invertir con nosotros?</SectionTitle>
+        <div className="bg-white/10 p-6 rounded-xl shadow-2xl text-white space-y-4 text-lg">
+          <p>
+            🚀 <strong>Tecnología de punta:</strong> Nuestra IA trabaja las 24 h para generar rendimiento de tus inversiones.
+          </p>
+          <p>
+            🛡 <strong>Seguridad:</strong> Tus datos y fondos están protegidos con los más altos estándares.
+          </p>
+          <p>
+            🎁 <strong>Bonos y referidos:</strong> Gana bonos por cada persona que invites, si tienes un paquete activo.
+          </p>
+          <p>
+            💸 <strong>Retiros fáciles:</strong> Solicita tus ganancias directamente a tu cuenta Nequi o Daviplata.
+          </p>
         </div>
       </main>
     </div>
   );
 }
 
-const NavLink = ({ to, label }) => (
+/* ---------------- COMPONENTES UI ---------------- */
+
+const Sidebar = ({ open, toggle }) => (
+  <aside
+    className={clsx(
+      "fixed md:static w-64 h-full bg-white/10 backdrop-blur-lg border-r border-white/10 shadow-2xl z-50 transition-transform",
+      open ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+    )}
+  >
+    <div className="p-6 text-2xl font-extrabold text-yellow-400 border-b border-white/10">
+      CartAI
+    </div>
+    <nav className="flex flex-col p-4 space-y-5 text-lg font-semibold">
+      <NavLink to="/dashboard" label="Dashboard" emoji="🏠" />
+      <NavLink to="/invest" label="Invertir" emoji="💼" />
+      <NavLink to="/withdraw" label="Retirar" emoji="💸" />
+      <NavLink to="/referrals" label="Invitar" emoji="📨" />
+      <NavLink to="/game" label="Jugar" emoji="🎮" />
+      <button
+        onClick={() => signOut(auth)}
+        className="mt-6 bg-red-500 hover:bg-red-600 py-2 px-4 rounded shadow text-white"
+      >
+        Cerrar sesión
+      </button>
+    </nav>
+    <button
+      onClick={toggle}
+      className="md:hidden absolute top-4 right-4 text-yellow-300 text-2xl"
+    >
+      ✕
+    </button>
+  </aside>
+);
+
+const NavLink = ({ to, label, emoji }) => (
   <Link
     to={to}
-    className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition shadow"
+    className="flex items-center gap-2 px-3 py-2 rounded hover:text-yellow-300 transition"
   >
-    {label}
+    {emoji} {label}
   </Link>
 );
 
@@ -236,7 +234,7 @@ const SectionTitle = ({ children }) => (
   </h2>
 );
 
-function Metric({ title, value, color }) {
+const Metric = ({ title, value, color }) => {
   const c =
     color === "green"
       ? "text-green-400"
@@ -249,27 +247,26 @@ function Metric({ title, value, color }) {
       <h3 className={`text-3xl font-bold ${c}`}>${COP(value)}</h3>
     </div>
   );
-}
+};
 
 const IAWidget = ({ saldo, pct, puede, onClaim, diasRest }) => (
   <section className="bg-blue-100 text-black rounded-xl p-6 shadow-2xl border border-blue-300 space-y-4">
     <div className="flex justify-between items-center">
-      <h3 className="text-xl font-bold flex items-center gap-1">🤖 IA gratuita</h3>
+      <h3 className="text-xl font-bold flex items-center gap-1">
+        🤖 IA gratuita
+      </h3>
       <span className="text-sm">{diasRest} d restantes</span>
     </div>
-
     <p>
       Saldo acumulado: <strong>${COP(saldo)}</strong>
     </p>
-
     <div className="w-full bg-white/40 rounded-full h-3">
       <div
         style={{ width: `${pct}%` }}
         className="h-full bg-gradient-to-r from-yellow-400 to-green-400 transition-all"
-      ></div>
+      />
     </div>
     <p className="text-right text-xs">{pct}% de $60 000</p>
-
     <button
       onClick={onClaim}
       disabled={!puede}
@@ -297,10 +294,8 @@ const PackageCard = ({ p }) => {
           {p.diasRestantes} / {p.diasTotales} d
         </span>
       </header>
-
       <p className="text-sm">💸 Invertido: ${COP(p.invertido)}</p>
       <p className="text-sm">🏁 Recibirás: ${COP(p.total)}</p>
-
       <div className="w-full bg-white/25 rounded-full h-3">
         <div
           style={{ width: `${pct}%` }}
@@ -317,7 +312,7 @@ const MovList = ({ movs }) => (
     {movs.map((m, idx) => (
       <li
         key={idx}
-        className="bg-white/10 border border-white/20 rounded-lg p-4 shadow-md animate-fade-in flex justify-between items-center"
+        className="bg-white/10 border border-white/20 rounded-lg p-4 shadow-md flex justify-between items-center"
       >
         <span>{m.concepto}</span>
         <span
