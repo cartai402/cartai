@@ -12,34 +12,33 @@ export default function Withdraw() {
   const [monto, setMonto] = useState("");
   const [movimientos, setMovimientos] = useState([]);
   const [saldo, setSaldo] = useState(0);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const uid = auth.currentUser?.uid;
 
+  /* ---------- Load ---------- */
   useEffect(() => {
     if (!uid) return;
 
-    const userRef = ref(db, `usuarios/${uid}`);
-    get(userRef).then((snap) => {
-      const data = snap.val();
-      if (data?.saldo) setSaldo(data.saldo);
-    });
+    (async () => {
+      const userSnap = await get(ref(db, `usuarios/${uid}`));
+      setSaldo(userSnap.val()?.saldo ?? 0);
 
-    const ctaRef = ref(db, `usuarios/${uid}/cuentaRetiro`);
-    get(ctaRef).then((snap) => {
-      if (snap.exists()) setCuentaRegistrada(snap.val());
-    });
+      const ctaSnap = await get(ref(db, `usuarios/${uid}/cuentaRetiro`));
+      if (ctaSnap.exists()) setCuentaRegistrada(ctaSnap.val());
+    })();
 
     const movRef = ref(db, `retiros/${uid}`);
-    onValue(movRef, (snap) => {
-      const data = snap.val() || {};
-      const lista = Object.values(data).reverse();
+    return onValue(movRef, snap => {
+      const lista = Object.values(snap.val() || {}).reverse();
       setMovimientos(lista);
     });
   }, [uid]);
 
+  /* ---------- Guardar cuenta ---------- */
   const registrarCuenta = async () => {
     if (numero1 !== numero2) return alert("❌ Los números no coinciden.");
-    if (numero1.length < 9) return alert("❌ El número ingresado no es válido.");
+    if (numero1.length < 9)  return alert("❌ El número ingresado no es válido.");
 
     const cuenta = { tipo: tipoCta, numero: numero1 };
     await set(ref(db, `usuarios/${uid}/cuentaRetiro`), cuenta);
@@ -47,28 +46,26 @@ export default function Withdraw() {
     alert("✅ Cuenta registrada correctamente.");
   };
 
+  /* ---------- Retiro ---------- */
   const solicitarRetiro = async () => {
-    const cantidad = parseInt(monto);
-    if (isNaN(cantidad) || cantidad < 20000) {
-      alert("❌ El retiro mínimo es de $20.000");
-      return;
-    }
-    if (cantidad > saldo) {
-      alert("❌ No tienes suficiente saldo disponible.");
-      return;
-    }
+    const cant = parseInt(monto);
+    if (isNaN(cant) || cant < 20000) return alert("❌ Mínimo $20.000.");
+    if (cant > saldo)             return alert("❌ Saldo insuficiente.");
 
-    const nuevoRetiro = {
-      monto: cantidad,
+    await push(ref(db, `retiros/${uid}`), {
+      monto: cant,
       estado: "pendiente",
       fecha: new Date().toISOString(),
-    };
+    });
 
-    await push(ref(db, `retiros/${uid}`), nuevoRetiro);
-    alert("✅ Retiro solicitado correctamente.");
+    /* animación éxito */
+    setShowSuccess(true);
+    setTimeout(() => setShowSuccess(false), 1800); // se oculta solo
+
     setMonto("");
   };
 
+  /* ---------- UI ---------- */
   const opciones = [
     { id: "nequi", nombre: "Nequi", logo: nequiLogo },
     { id: "daviplata", nombre: "Daviplata", logo: daviLogo },
@@ -79,26 +76,28 @@ export default function Withdraw() {
       <div className="max-w-3xl mx-auto space-y-10">
         <h1 style={styles.title}>💸 Retirar dinero</h1>
 
-        {/* Cuenta no registrada */}
+        {/* ---------- cuenta ---------- */}
         {!cuentaRegistrada ? (
-          <div style={styles.card}>
-            <h2 style={styles.subtitle}>📲 Registrar cuenta de retiro</h2>
+          <Card>
+            <h2 style={styles.subtitle}>📲 Registrar cuenta</h2>
 
+            {/* selector */}
             <div style={{ position: "relative" }}>
               <select
                 value={tipoCta}
-                onChange={(e) => setTipoCta(e.target.value)}
+                onChange={e => setTipoCta(e.target.value)}
                 style={{
                   ...styles.input,
-                  backgroundImage: `url(${opciones.find(o => o.id === tipoCta).logo})`,
+                  backgroundImage: `url(${opciones.find(o=>o.id===tipoCta).logo})`,
                   backgroundRepeat: "no-repeat",
                   backgroundPosition: "right 1rem center",
                   backgroundSize: "26px 26px",
-                  appearance: "none"
+                  animation: "pulseIcon 3s infinite",
+                  appearance:"none"
                 }}
               >
-                {opciones.map(op => (
-                  <option key={op.id} value={op.id} style={{ color: "#000" }}>
+                {opciones.map(op=>(
+                  <option key={op.id} value={op.id} style={{color:"#000"}}>
                     {op.nombre}
                   </option>
                 ))}
@@ -107,129 +106,125 @@ export default function Withdraw() {
 
             <input
               placeholder="Número de cuenta"
-              value={numero1}
-              onChange={(e) => setNumero1(e.target.value)}
               style={styles.input}
+              value={numero1}
+              onChange={e => setNumero1(e.target.value)}
             />
             <input
               placeholder="Confirma el número"
-              value={numero2}
-              onChange={(e) => setNumero2(e.target.value)}
               style={styles.input}
+              value={numero2}
+              onChange={e => setNumero2(e.target.value)}
             />
             <button onClick={registrarCuenta} style={styles.greenBtn}>
               Guardar cuenta
             </button>
-          </div>
+          </Card>
         ) : (
-          <div style={styles.card}>
+          <Card>
             <h2 style={styles.subtitle}>💰 Solicitar retiro</h2>
             <p>Cuenta: <b>{cuentaRegistrada.tipo.toUpperCase()} - {cuentaRegistrada.numero}</b></p>
             <p>Saldo disponible: <b>${saldo.toLocaleString()}</b></p>
 
             <input
               placeholder="Monto a retirar (mínimo $20.000)"
-              value={monto}
-              onChange={(e) => setMonto(e.target.value)}
               style={styles.input}
+              value={monto}
+              onChange={e => setMonto(e.target.value)}
             />
             <button onClick={solicitarRetiro} style={styles.yellowBtn}>
               Solicitar retiro
             </button>
-          </div>
+          </Card>
         )}
 
-        {/* Movimientos */}
-        <div style={styles.card}>
+        {/* ---------- movimientos ---------- */}
+        <Card>
           <h2 style={styles.subtitle}>📄 Movimientos</h2>
-          <div style={{ maxHeight: 300, overflowY: "auto", marginTop: 12 }}>
-            {movimientos.length === 0 ? (
-              <p style={{ color: "#aaa" }}>Aún no tienes movimientos.</p>
-            ) : (
-              movimientos.map((mov, i) => {
-                const color =
-                  mov.estado === "aprobado" ? "#00e676" :
-                  mov.estado === "rechazado" ? "#ef5350" : "#ffd54f";
-
-                return (
-                  <div key={i} style={{
-                    background: "#202b3d",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    padding: 12,
-                    borderRadius: 10,
-                    marginBottom: 8,
-                    borderLeft: `4px solid ${color}`,
-                    boxShadow: "2px 2px 6px #000a"
-                  }}>
-                    <span style={{ color }}>{`$${mov.monto.toLocaleString()}`}</span>
-                    <span style={{ fontSize: 12, color: "#aaa" }}>{mov.estado.toUpperCase()}</span>
-                  </div>
-                );
-              })
-            )}
+          <div style={{maxHeight:300,overflowY:"auto",marginTop:12}}>
+            {movimientos.length===0
+              ? <p style={{color:"#aaa"}}>Aún no tienes movimientos.</p>
+              : movimientos.map((m,i)=>{
+                  const col = m.estado==="aprobado"
+                              ? "#00e676" : m.estado==="rechazado"
+                              ? "#ef5350" : "#ffd54f";
+                  return (
+                    <div key={i} style={{
+                      background:"#202b3d",
+                      display:"flex",justifyContent:"space-between",
+                      padding:12,borderRadius:10,marginBottom:8,
+                      borderLeft:`4px solid ${col}`,boxShadow:"2px 2px 6px #000a"
+                    }}>
+                      <span style={{color:col}}>${m.monto.toLocaleString()}</span>
+                      <span style={{fontSize:12,color:"#aaa"}}>{m.estado.toUpperCase()}</span>
+                    </div>
+                  );
+                })}
           </div>
-        </div>
+        </Card>
       </div>
+
+      {/* ---------- overlay éxito ---------- */}
+      {showSuccess && <SuccessOverlay />}
     </main>
   );
 }
 
-/* === ESTILOS 4D tipo Dashboard === */
+/* ---------- tarjetas ---------- */
+const Card = ({children})=>(
+  <div style={styles.card}>{children}</div>
+);
+
+/* ---------- overlay éxito ---------- */
+const SuccessOverlay = ()=>(
+  <div style={styles.overlay}>
+    {/* confetti (8 piezas) */}
+    {Array.from({length:8}).map((_,i)=>(
+      <span key={i} className="confetti-piece"
+        style={{
+          left:`${Math.random()*100}%`,
+          background: `hsl(${Math.random()*360} 80% 60%)`,
+          animationDelay:`${Math.random()*0.3}s`
+        }}
+      />
+    ))}
+    <div style={styles.checkBox}>
+      <span style={{fontSize:48,lineHeight:1}}>✔️</span>
+      <p style={{margin:0,marginTop:6,fontWeight:600}}>Solicitud enviada</p>
+    </div>
+  </div>
+);
+
+/* ---------- styles ---------- */
 const styles = {
-  bg: {
-    background: "#0a0f1e",
-    minHeight: "100vh",
-    color: "white",
-    padding: 20
+  bg:{background:"#0a0f1e",minHeight:"100vh",color:"white",padding:20},
+  title:{fontSize:28,fontWeight:"bold",textAlign:"center"},
+  subtitle:{fontSize:20,fontWeight:"bold",marginBottom:12},
+  card:{
+    background:"#152037",padding:20,borderRadius:22,
+    boxShadow:"4px 4px 12px #000a",backdropFilter:"blur(4px)"
   },
-  card: {
-    background: "#152037",
-    padding: 20,
-    borderRadius: 20,
-    boxShadow: "4px 4px 12px #000a"
+  input:{
+    width:"100%",background:"rgba(255,255,255,.08)",color:"white",
+    padding:"12px 16px",borderRadius:14,marginBottom:10,border:"none",
+    outline:"none",fontWeight:500
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    textAlign: "center"
+  greenBtn:{
+    width:"100%",padding:"12px 16px",borderRadius:14,
+    background:"#00c853",border:"none",color:"white",fontWeight:700,
+    cursor:"pointer",boxShadow:"3px 3px 8px #0009",transition:".2s"
   },
-  subtitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 12
+  yellowBtn:{
+    width:"100%",padding:"12px 16px",borderRadius:14,
+    background:"#ffd600",border:"none",color:"#000",fontWeight:700,
+    cursor:"pointer",boxShadow:"3px 3px 8px #0009",transition:".2s"
   },
-  input: {
-    width: "100%",
-    background: "rgba(255,255,255,0.08)",
-    color: "white",
-    padding: "12px 16px",
-    borderRadius: 12,
-    marginBottom: 10,
-    border: "none",
-    outline: "none",
-    fontWeight: 500
+  overlay:{
+    position:"fixed",inset:0,background:"rgba(0,0,0,.7)",
+    display:"flex",justifyContent:"center",alignItems:"center",zIndex:999
   },
-  greenBtn: {
-    width: "100%",
-    padding: "12px 16px",
-    backgroundColor: "#00c853",
-    color: "white",
-    border: "none",
-    borderRadius: 12,
-    fontWeight: "bold",
-    cursor: "pointer",
-    boxShadow: "3px 3px 6px #0008"
-  },
-  yellowBtn: {
-    width: "100%",
-    padding: "12px 16px",
-    backgroundColor: "#ffd600",
-    color: "#000",
-    border: "none",
-    borderRadius: 12,
-    fontWeight: "bold",
-    cursor: "pointer",
-    boxShadow: "3px 3px 6px #0008"
+  checkBox:{
+    background:"#152037",padding:"40px 60px",borderRadius:30,
+    boxShadow:"0 8px 20px #000c",textAlign:"center"
   }
 };
