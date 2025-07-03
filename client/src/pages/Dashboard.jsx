@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "../firebase";
@@ -8,27 +8,23 @@ import clsx from "clsx";
 /* Utilidades */
 const COP = (n) => n.toLocaleString("es-CO");
 const hoyISO = () => new Date().toISOString().split("T")[0];
-const diasEntre = (isoDate) => {
-  if (!isoDate) return 0;
-  const d1 = new Date(isoDate);
-  const d2 = new Date();
-  return Math.floor((d2 - d1) / 864e5);
-};
+const diasEntre = (d) => (d ? Math.floor((Date.now() - Date.parse(d)) / 864e5) : 0);
 
 export default function Dashboard() {
-  const [data, setData] = useState(null);
-  const [sidebar, setSidebar] = useState(false);
-  const [mostrarModalIA, setMostrarModalIA] = useState(false);
+  const [data, setData]        = useState(null);
+  const [showIAModal, setShow] = useState(false);
 
+  /* Suscripción a Firebase */
   useEffect(() => {
-    const offAuth = onAuthStateChanged(auth, (user) => {
-      if (!user) return;
-      const uid = user.uid;
+    const off = onAuthStateChanged(auth, (u) => {
+      if (!u) return;
+      const uid = u.uid;
       const userRef = ref(db, `usuarios/${uid}`);
 
       onValue(userRef, (snap) => {
         if (snap.exists()) {
           setData(snap.val());
+          if (!snap.val().iaActiva) setShow(true);
         } else {
           const def = {
             iaActiva: false,
@@ -43,27 +39,14 @@ export default function Dashboard() {
           };
           set(userRef, def);
           setData(def);
+          setShow(true);
         }
       });
     });
-
-    return () => offAuth();
+    return () => off();
   }, []);
 
-  const reclamarIA = () => {
-    if (!data?.iaActiva) return;
-    const uid = auth.currentUser.uid;
-    const hoy = hoyISO();
-    if (data.iaUltimoReclamo === hoy) return;
-
-    update(ref(db, `usuarios/${uid}`), {
-      iaSaldo: (data.iaSaldo || 0) + 1000,
-      saldoBonos: (data.saldoBonos || 0) + 1000,
-      iaUltimoReclamo: hoy,
-      iaInicio: data.iaInicio || hoy,
-    });
-  };
-
+  /* Activar / reclamar IA */
   const activarIA = () => {
     const uid = auth.currentUser.uid;
     update(ref(db, `usuarios/${uid}`), {
@@ -72,195 +55,193 @@ export default function Dashboard() {
       iaUltimoReclamo: null,
       iaSaldo: 0,
     });
-    setMostrarModalIA(false);
+    setShow(false);
+  };
+  const reclamarIA = () => {
+    if (!data?.iaActiva) return;
+    const uid = auth.currentUser.uid;
+    const hoy = hoyISO();
+    if (data.iaUltimoReclamo === hoy) return;
+    update(ref(db, `usuarios/${uid}`), {
+      iaSaldo: (data.iaSaldo || 0) + 1000,
+      saldoBonos: (data.saldoBonos || 0) + 1000,
+      iaUltimoReclamo: hoy,
+    });
   };
 
+  /* Loading */
   if (!data) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black text-white animate-pulse">
-        Cargando panel…
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        Cargando…
       </div>
     );
   }
 
+  /* Derivados */
   const [nombre] = auth.currentUser.displayName?.split("|") || ["Usuario"];
-
   const {
     iaActiva,
-    iaSaldo = 0,
+    iaSaldo      = 0,
     iaInicio,
     iaUltimoReclamo,
     saldoInversion = 0,
-    saldoGanado = 0,
-    saldoBonos = 0,
-    paquetes = {},
-    movimientos = [],
+    saldoGanado   = 0,
+    saldoBonos    = 0,
+    paquetes      = {},
+    movimientos   = [],
   } = data;
 
-  const IA_DIAS_TOTALES = 60;
-  const iaDiasPasados = iaInicio ? diasEntre(iaInicio) : 0;
-  const iaPct = Math.min(
-    Math.round((iaDiasPasados / IA_DIAS_TOTALES) * 100),
-    100
-  );
-  const iaPuedeReclamar =
-    iaActiva && iaUltimoReclamo !== hoyISO() && iaDiasPasados < IA_DIAS_TOTALES;
+  /* IA progreso */
+  const totalDiasIA   = 60;
+  const diasIA        = diasEntre(iaInicio);
+  const pctIA         = Math.min(Math.round((diasIA / totalDiasIA) * 100), 100);
+  const puedeReclamar = iaActiva && iaUltimoReclamo !== hoyISO() && diasIA < totalDiasIA;
 
-  const packsArr = Object.values(paquetes || {});
-  const activos = packsArr
-    .filter((p) => p.diasRestantes > 0)
-    .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  /* Paquetes activos / finalizados */
+  const packs = Object.values(paquetes);
+  const activos     = packs.filter((p) => p.diasRestantes > 0);
+  const finalizados = packs.filter((p) => p.diasRestantes <= 0);
 
-  const finalizados = packsArr
-    .filter((p) => p.diasRestantes <= 0)
-    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
-
+  /* Últimos movimientos */
   const movs = [...movimientos]
-    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+    .sort((a, b) => Date.parse(b.fecha) - Date.parse(a.fecha))
     .slice(0, 5);
 
   return (
-    <div className="min-h-screen flex bg-gradient-to-tr from-[#0f2027] via-[#203a43] to-[#2c5364] text-white">
-      <Sidebar open={sidebar} toggle={() => setSidebar(!sidebar)} />
+    <div className="min-h-screen w-full bg-gradient-to-tr from-[#0f2027] via-[#203a43] to-[#2c5364] text-white flex flex-col">
 
-      <main className="flex-1 p-6 md:ml-64 space-y-12">
-        <button
-          onClick={() => setSidebar(!sidebar)}
-          className="md:hidden text-3xl text-yellow-300"
-        >
-          ☰
-        </button>
-
-        <header className="text-center space-y-1">
-          <h1 className="text-4xl font-bold">Bienvenido, {nombre} 👋</h1>
-          <p className="text-gray-300">
-            Todo tu resumen de inversión en un solo lugar
-          </p>
-        </header>
-
-        {/* Modal IA gratuita si aún no está activa */}
-        {!iaActiva && (
-          <div className="bg-white/10 border border-yellow-400 rounded-lg p-4 shadow-2xl text-white space-y-4">
-            <h2 className="text-2xl font-bold">🎁 ¡Activa tu IA gratuita!</h2>
+      {/* MODAL IA GRATUITA */}
+      {showIAModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+          <div className="relative z-10 bg-white rounded-2xl max-w-md w-[90%] p-8 text-black space-y-4 shadow-2xl">
+            <h2 className="text-3xl font-extrabold text-center text-blue-600">¡Felicidades 🥳!</h2>
             <p>
-              Durante 60 días recibirás $1 000 diarios por probar nuestra
-              inteligencia artificial. Este saldo se suma a tus bonos y puede
-              ayudarte a invertir más adelante. No necesitas pagar nada.
+              Activa tu <strong>IA Gratuita</strong> y recibe
+              <strong> $1 000 COP</strong> cada día durante
+              <strong> 60 días</strong>. Podrás retirarlo cuando tengas tu primer
+              paquete real.
             </p>
             <button
               onClick={activarIA}
-              className="bg-green-500 hover:bg-green-600 text-black px-4 py-2 rounded shadow-md font-bold"
+              className="w-full bg-gradient-to-r from-yellow-400 to-yellow-600 hover:to-yellow-500 text-black font-bold py-3 rounded-lg shadow-lg"
             >
               Activar IA gratuita
             </button>
           </div>
-        )}
+        </div>
+      )}
 
-        {iaActiva && (
+      {/* HEADER */}
+      <header className="py-6 text-center space-y-1">
+        <h1 className="text-4xl font-bold">Hola, {nombre} 👋</h1>
+        <p className="text-gray-300">Panel de control de tus inversiones</p>
+      </header>
+
+      {/* BOTONES ACCIONES PRINCIPALES */}
+      <nav className="grid grid-cols-2 sm:grid-cols-4 gap-4 px-6">
+        <ActionCard to="/invest"    label="Invertir" icon="💼" />
+        <ActionCard to="/withdraw"  label="Retirar"  icon="💸" />
+        <ActionCard to="/referrals" label="Invitar"  icon="📨" />
+        <ActionCard to="/game"      label="Jugar"    icon="🎮" />
+      </nav>
+
+      {/* MÉTRICAS */}
+      <section className="grid sm:grid-cols-3 gap-6 px-6 mt-10">
+        <Metric title="Invertido" val={saldoInversion} color="yellow" />
+        <Metric title="Ganado"    val={saldoGanado}    color="green"  />
+        <Metric title="Bonos"     val={saldoBonos}     color="blue"   />
+      </section>
+
+      {/* IA Widget */}
+      {iaActiva && (
+        <section className="px-6 mt-10">
           <IAWidget
             saldo={iaSaldo}
-            pct={iaPct}
-            puede={iaPuedeReclamar}
+            pct={pctIA}
+            puede={puedeReclamar}
             onClaim={reclamarIA}
-            diasRest={IA_DIAS_TOTALES - iaDiasPasados}
+            diasRest={totalDiasIA - diasIA}
           />
-        )}
-
-        <section className="grid sm:grid-cols-3 gap-6">
-          <Metric title="Invertido" value={saldoInversion} color="yellow" />
-          <Metric title="Ganado" value={saldoGanado} color="green" />
-          <Metric title="Bonos" value={saldoBonos} color="blue" />
         </section>
+      )}
 
-        <SectionTitle>📦 Paquetes activos</SectionTitle>
+      {/* Paquetes */}
+      <DashboardSection title="📦 Paquetes activos">
         {activos.length === 0 ? (
-          <p className="text-gray-300">Aún no tienes paquetes activos.</p>
+          <EmptyText>No tienes paquetes activos.</EmptyText>
         ) : (
-          <div className="grid lg:grid-cols-2 gap-6">
+          <CardsGrid>
             {activos.map((p) => (
               <PackageCard key={p.id} p={p} />
             ))}
-          </div>
+          </CardsGrid>
         )}
+      </DashboardSection>
 
-        <SectionTitle>📁 Paquetes finalizados</SectionTitle>
+      <DashboardSection title="📁 Paquetes finalizados">
         {finalizados.length === 0 ? (
-          <p className="text-gray-300">Aún no has finalizado ningún paquete.</p>
+          <EmptyText>Aún no has finalizado ningún paquete.</EmptyText>
         ) : (
-          <div className="grid lg:grid-cols-2 gap-6">
+          <CardsGrid>
             {finalizados.map((p) => (
-              <PackageCard key={p.id} p={p} />
+              <PackageCard key={p.id} p={p} fin />
             ))}
-          </div>
+          </CardsGrid>
         )}
+      </DashboardSection>
 
-        <SectionTitle>📝 Últimos movimientos</SectionTitle>
+      {/* Movimientos */}
+      <DashboardSection title="📝 Últimos movimientos">
         {movs.length === 0 ? (
-          <p className="text-gray-300">Sin movimientos registrados.</p>
+          <EmptyText>Sin movimientos registrados.</EmptyText>
         ) : (
-          <MovList movs={movs} />
+          <ul className="space-y-3">
+            {movs.map((m, i) => (
+              <li
+                key={i}
+                className="bg-white/10 border border-white/20 rounded-lg p-4 flex justify-between items-center"
+              >
+                <span>{m.concepto}</span>
+                <span
+                  className={clsx(
+                    "font-semibold",
+                    m.monto.startsWith("-") ? "text-red-400" : "text-green-400"
+                  )}
+                >
+                  {m.monto}
+                </span>
+                <span className="text-xs text-gray-400">{m.fecha}</span>
+              </li>
+            ))}
+          </ul>
         )}
+      </DashboardSection>
 
-        <SectionTitle>💡 ¿Por qué invertir con nosotros?</SectionTitle>
-        <ul className="list-disc pl-5 space-y-2 text-white/90">
-          <li>Inteligencia artificial que optimiza tus ganancias</li>
-          <li>Bonos diarios sin costo inicial</li>
-          <li>Retiro rápido y seguro por Nequi o Daviplata</li>
-          <li>Invita y gana con el sistema de referidos</li>
-        </ul>
-      </main>
+      {/* Footer por qué invertir */}
+      <footer className="mt-16 bg-white/10 py-6 px-6 space-y-2 text-center text-gray-200">
+        <p className="text-lg font-semibold">💡 ¿Por qué invertir con CartAI?</p>
+        <p>🚀 IA 24/7 optimizando tu capital.</p>
+        <p>🔒 Seguridad y transparencia con Firebase.</p>
+        <p>🎁 Bonos, referidos y torneos futuros.</p>
+      </footer>
+
+      {/* Logout flotante */}
+      <button
+        onClick={() => signOut(auth)}
+        className="fixed bottom-4 right-4 bg-red-600 hover:bg-red-700 text-white p-3 rounded-full shadow-xl text-2xl"
+        title="Cerrar sesión"
+      >
+        ⎋
+      </button>
     </div>
   );
 }
 
-const Sidebar = ({ open, toggle }) => (
-  <aside
-    className={clsx(
-      "fixed md:static w-64 h-full bg-white/10 backdrop-blur-lg border-r border-white/10 shadow-2xl z-50 transition-transform",
-      open ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-    )}
-  >
-    <div className="p-6 text-2xl font-extrabold text-yellow-400 border-b border-white/10">
-      CartAI
-    </div>
-    <nav className="flex flex-col p-4 space-y-5 text-lg font-semibold">
-      <NavLink to="/dashboard" label="Dashboard" emoji="🏠" />
-      <NavLink to="/invest" label="Invertir" emoji="💼" />
-      <NavLink to="/withdraw" label="Retirar" emoji="💸" />
-      <NavLink to="/referrals" label="Invitar" emoji="📨" />
-      <NavLink to="/game" label="Jugar" emoji="🎮" />
-      <button
-        onClick={() => signOut(auth)}
-        className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded shadow font-bold mt-6"
-      >
-        Cerrar sesión
-      </button>
-    </nav>
-    <button
-      onClick={toggle}
-      className="md:hidden absolute top-4 right-4 text-yellow-300 text-2xl"
-    >
-      ✕
-    </button>
-  </aside>
-);
+/* --------- Sub-componentes UI --------- */
 
-const NavLink = ({ to, label, emoji }) => (
-  <Link
-    to={to}
-    className="flex items-center gap-2 px-3 py-2 rounded hover:text-yellow-300 transition"
-  >
-    {emoji} {label}
-  </Link>
-);
-
-const SectionTitle = ({ children }) => (
-  <h2 className="text-2xl font-semibold border-b border-white/20 pb-2">
-    {children}
-  </h2>
-);
-
-function Metric({ title, value, color }) {
+const Metric = ({ title, val, color }) => {
   const c =
     color === "green"
       ? "text-green-400"
@@ -268,64 +249,63 @@ function Metric({ title, value, color }) {
       ? "text-blue-400"
       : "text-yellow-400";
   return (
-    <div className="bg-white/10 hover:bg-white/20 rounded-xl border border-white/20 shadow-xl p-6 text-center transition transform hover:-translate-y-1 duration-300">
+    <div className="bg-white/10 rounded-xl p-6 text-center shadow-lg hover:bg-white/20 transition">
       <p className="text-sm text-gray-300">{title}</p>
-      <h3 className={`text-3xl font-bold ${c}`}>${COP(value)}</h3>
+      <h3 className={clsx("text-3xl font-bold", c)}>${COP(val)}</h3>
     </div>
   );
-}
+};
 
 const IAWidget = ({ saldo, pct, puede, onClaim, diasRest }) => (
-  <section className="bg-blue-100 text-black rounded-xl p-6 shadow-2xl border border-blue-300 space-y-4">
-    <div className="flex justify-between items-center">
-      <h3 className="text-xl font-bold flex items-center gap-1">
-        🤖 IA gratuita
-      </h3>
-      <span className="text-sm">{diasRest} d restantes</span>
-    </div>
+  <div className="bg-blue-100 text-black rounded-xl p-6 shadow-lg space-y-4">
+    <header className="flex justify-between">
+      <h3 className="font-bold text-xl">🤖 IA gratuita</h3>
+      <span className="text-sm">{diasRest} d restantes</span>
+    </header>
     <p>
       Saldo acumulado: <strong>${COP(saldo)}</strong>
     </p>
-    <div className="w-full bg-white/40 rounded-full h-3">
+    <div className="w-full bg-white/50 h-3 rounded-full overflow-hidden">
       <div
         style={{ width: `${pct}%` }}
-        className="h-full bg-gradient-to-r from-yellow-400 to-green-400 transition-all"
-      ></div>
+        className="h-full bg-gradient-to-r from-yellow-400 to-green-500"
+      />
     </div>
-    <p className="text-right text-xs">{pct}% de $60 000</p>
+    <p className="text-right text-xs">{pct}% de $60 000</p>
     <button
       onClick={onClaim}
       disabled={!puede}
       className={clsx(
         "w-full py-2 rounded-md font-bold transition",
         puede
-          ? "bg-green-400 hover:bg-green-500 text-black"
+          ? "bg-green-400 hover:bg-green-500"
           : "bg-gray-400 cursor-not-allowed"
       )}
     >
-      {puede ? "Reclamar $1 000 de hoy" : "Reclamado hoy"}
+      {puede ? "Reclamar $1 000 de hoy" : "Reclamado hoy"}
     </button>
-  </section>
+  </div>
 );
 
-const PackageCard = ({ p }) => {
-  const pct = Math.round(
-    ((p.diasTotales - p.diasRestantes) / p.diasTotales) * 100
-  );
+const PackageCard = ({ p, fin }) => {
+  const pct =
+    p.diasTotales === 0
+      ? 100
+      : Math.round(((p.diasTotales - p.diasRestantes) / p.diasTotales) * 100);
   return (
-    <div className="bg-white/10 hover:bg-white/20 rounded-xl border border-white/20 shadow-xl p-6 space-y-4 transition transform hover:scale-[1.02]">
-      <header className="flex justify-between">
-        <h4 className="text-lg font-bold">{p.nombre}</h4>
-        <span className="text-sm text-gray-300">
-          {p.diasRestantes} / {p.diasTotales} d
+    <div className="bg-white/10 rounded-xl p-6 shadow-lg space-y-4 hover:bg-white/20 transition">
+      <header className="flex justify-between items-start">
+        <h4 className="font-bold">{p.nombre}</h4>
+        <span className="text-xs text-gray-400">
+          {fin ? "Finalizado" : `${p.diasRestantes}/${p.diasTotales} d`}
         </span>
       </header>
       <p className="text-sm">💸 Invertido: ${COP(p.invertido)}</p>
-      <p className="text-sm">🏁 Recibirás: ${COP(p.total)}</p>
-      <div className="w-full bg-white/25 rounded-full h-3">
+      <p className="text-sm">🏁 Total: ${COP(p.total)}</p>
+      <div className="w-full h-2 bg-white/30 rounded-full overflow-hidden">
         <div
           style={{ width: `${pct}%` }}
-          className="h-full bg-gradient-to-r from-yellow-400 to-green-400"
+          className="h-full bg-gradient-to-r from-yellow-400 to-green-500"
         />
       </div>
       <p className="text-right text-xs">{pct}%</p>
@@ -333,24 +313,27 @@ const PackageCard = ({ p }) => {
   );
 };
 
-const MovList = ({ movs }) => (
-  <ul className="space-y-4">
-    {movs.map((m, idx) => (
-      <li
-        key={idx}
-        className="bg-white/10 border border-white/20 rounded-lg p-4 shadow-md animate-fade-in flex justify-between items-center"
-      >
-        <span>{m.concepto}</span>
-        <span
-          className={clsx(
-            "font-semibold",
-            m.monto.startsWith("-") ? "text-red-400" : "text-green-400"
-          )}
-        >
-          {m.monto}
-        </span>
-        <span className="text-xs text-gray-400">{m.fecha}</span>
-      </li>
-    ))}
-  </ul>
+const ActionCard = ({ to, icon, label }) => (
+  <Link
+    to={to}
+    className="bg-white/10 backdrop-blur-lg rounded-xl p-6 flex flex-col items-center justify-center gap-2 shadow-lg hover:bg-white/20 transition"
+  >
+    <span className="text-3xl">{icon}</span>
+    <span className="font-semibold">{label}</span>
+  </Link>
+);
+
+const DashboardSection = ({ title, children }) => (
+  <section className="mt-14 px-6 space-y-6">
+    <h2 className="text-2xl font-bold">{title}</h2>
+    {children}
+  </section>
+);
+
+const CardsGrid = ({ children }) => (
+  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">{children}</div>
+);
+
+const EmptyText = ({ children }) => (
+  <p className="text-gray-300">{children}</p>
 );
