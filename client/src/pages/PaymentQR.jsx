@@ -44,68 +44,58 @@ export default function PaymentQR() {
   };
 
   return (
-    <main
-      className="min-h-screen flex items-center justify-center p-6"
-      style={{ background: "linear-gradient(135deg,#A200FF 0%,#FF0066 100%)" }}
-    >
-      <div className="w-full max-w-md bg-white/10 backdrop-blur-lg text-white p-8 rounded-2xl shadow-2xl space-y-6 border border-white/20">
-        <h1 className="text-3xl font-bold text-center">Pago del Paquete</h1>
+    <main style={styles.bg}>
+      <div style={styles.card}>
+        <h1 style={styles.title}>💳 Confirmar Pago</h1>
 
-        <section className="bg-black/30 p-4 rounded-lg space-y-1 text-sm">
-          <p>
-            <span className="font-semibold">🧾 Paquete:</span> {nombre}
-          </p>
-          <p>
-            <span className="font-semibold">💰 Monto:</span> ${inversion.toLocaleString()} COP
-          </p>
-          <p className="text-gray-300">⏳ Procesamos tu activación en unos 5 minutos.</p>
+        <section style={styles.section}>
+          <p><strong>🧾 Paquete:</strong> {nombre}</p>
+          <p><strong>💰 Monto:</strong> ${inversion.toLocaleString()} COP</p>
+          <p style={{ opacity: 0.7 }}>Procesamos tu activación en unos 5 minutos.</p>
         </section>
 
-        <div className="text-center">
+        {/* Imagen QR */}
+        <div style={{ textAlign: "center" }}>
           <img
             src="/qr.png"
             alt="QR Nequi CartAI"
-            className="w-64 h-64 mx-auto border-4 border-white/20 rounded-lg"
+            style={styles.qr}
           />
-          <button
-            onClick={descargarQR}
-            className="mt-3 bg-white text-fuchsia-700 font-bold py-2 px-6 rounded-full hover:bg-fuchsia-100 transition"
-          >
+          <button onClick={descargarQR} style={{ ...styles.btn3d, ...styles.btnWhite }}>
             📥 Descargar QR
           </button>
         </div>
 
-        <div className="bg-black/30 p-4 rounded-lg space-y-2 text-sm">
-          <h2 className="font-semibold text-fuchsia-300 mb-2">Pasos para pagar con Nequi</h2>
-          <ol className="list-decimal list-inside space-y-1">
-            <li>Abre la app Nequi y selecciona <strong>“Escanear”</strong>.</li>
-            <li>Elige <em>“Desde galería”</em> y selecciona el QR descargado.</li>
+        {/* Pasos para pagar */}
+        <div style={styles.stepsBox}>
+          <h2 style={styles.stepTitle}>🧾 ¿Cómo pagar con Nequi?</h2>
+          <ol style={styles.ol}>
+            <li>Abre Nequi y toca <strong>“Escanear”</strong>.</li>
+            <li>Selecciona <em>“Desde galería”</em> y elige el QR.</li>
             <li>Paga exactamente <strong>${inversion.toLocaleString()}</strong>.</li>
-            <li>Copia la <strong>referencia</strong> que te da Nequi al completar el pago.</li>
-            <li>Ingresa la referencia aquí y presiona enviar.</li>
+            <li>Copia la <strong>referencia</strong> generada.</li>
+            <li>Pégala abajo y presiona enviar.</li>
           </ol>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Formulario */}
+        <form onSubmit={handleSubmit} style={{ marginTop: 20 }}>
           <input
             type="text"
             value={refPago}
             onChange={(e) => setRefPago(e.target.value)}
             required
             placeholder="Referencia Nequi (ej: M123456)"
-            className="w-full bg-white/20 p-3 rounded-lg placeholder-gray-300 text-white focus:ring-2 focus:ring-fuchsia-400 outline-none"
+            style={styles.input}
           />
-          <button
-            type="submit"
-            className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold py-3 rounded-lg transition"
-          >
-            Enviar referencia
+          <button type="submit" style={{ ...styles.btn3d, ...styles.btnMain }}>
+            🚀 Enviar referencia
           </button>
         </form>
 
         <button
           onClick={() => navigate("/dashboard")}
-          className="block mx-auto text-xs text-fuchsia-200 hover:underline"
+          style={styles.backLink}
         >
           ← Volver al Dashboard
         </button>
@@ -113,3 +103,109 @@ export default function PaymentQR() {
     </main>
   );
 }
+
+/* ─────────── Estilos 4D elegantes ─────────── */
+const styles = {
+  bg: {
+    minHeight: "100vh",
+    background: "linear-gradient(135deg,#A200FF 0%,#FF0066 100%)",
+    backgroundSize: "600% 600%",
+    animation: "floatBg 30s linear infinite",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 450,
+    background: "rgba(255,255,255,.06)",
+    backdropFilter: "blur(12px)",
+    padding: 28,
+    borderRadius: 24,
+    boxShadow: "0 8px 20px #0005",
+    color: "#fff",
+  },
+  title: {
+    fontSize: "1.8rem",
+    fontWeight: 800,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  section: {
+    background: "rgba(0,0,0,.25)",
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 24,
+    fontSize: 15,
+    lineHeight: 1.5,
+  },
+  qr: {
+    width: 200,
+    height: 200,
+    objectFit: "contain",
+    marginBottom: 12,
+    border: "4px solid rgba(255,255,255,.2)",
+    borderRadius: 12,
+    boxShadow: "0 0 20px #0007",
+  },
+  btn3d: {
+    padding: "12px 24px",
+    borderRadius: 14,
+    fontWeight: 700,
+    fontSize: "1rem",
+    boxShadow: "4px 4px 14px #000a",
+    transition: "all 0.2s",
+    display: "block",
+    width: "100%",
+    marginTop: 12,
+    border: "none",
+    cursor: "pointer",
+  },
+  btnWhite: {
+    background: "#fff",
+    color: "#A200FF",
+  },
+  btnMain: {
+    background: "linear-gradient(90deg,#d946ef,#a855f7)",
+    color: "#fff",
+    marginTop: 16,
+  },
+  input: {
+    width: "100%",
+    background: "rgba(255,255,255,.1)",
+    borderRadius: 12,
+    padding: "14px 18px",
+    color: "#fff",
+    border: "none",
+    outline: "none",
+    fontSize: "1rem",
+    marginBottom: 8,
+  },
+  stepsBox: {
+    background: "rgba(0,0,0,.2)",
+    padding: 18,
+    borderRadius: 16,
+    marginTop: 20,
+  },
+  stepTitle: {
+    fontSize: 16,
+    fontWeight: 600,
+    marginBottom: 10,
+    color: "#f9a8d4",
+  },
+  ol: {
+    paddingLeft: 20,
+    fontSize: 14,
+    lineHeight: 1.6,
+    color: "#ddd",
+  },
+  backLink: {
+    marginTop: 20,
+    fontSize: 13,
+    color: "#fbcfe8",
+    textDecoration: "underline",
+    textAlign: "center",
+    display: "block",
+  },
+};
