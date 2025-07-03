@@ -6,8 +6,9 @@ import {
 import { ref, set, get, update, child } from "firebase/database";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { auth, db } from "../firebase";
+import logo from "../assets/logor.png";
 
-const Register = () => {
+export default function Register() {
   const [form, setForm] = useState({
     nombre: "",
     email: "",
@@ -57,7 +58,6 @@ const Register = () => {
         displayName: `${nombre}|${telefono}|${invitacion || "N/A"}`,
       });
 
-      // Crear datos del nuevo usuario
       await set(ref(db, `usuarios/${uid}`), {
         nombre,
         email,
@@ -73,25 +73,19 @@ const Register = () => {
         movimientos: [],
       });
 
-      // Guardar UID como código de referido para compartir
       await set(ref(db, `referidos/${uid}`), uid);
 
-      // Si tiene código de invitación y el UID existe en /referidos
       if (invitacion) {
         const refSnapshot = await get(child(ref(db), `referidos/${invitacion}`));
         if (refSnapshot.exists()) {
           const referidorUID = refSnapshot.val();
           const referidorSnap = await get(ref(db, `usuarios/${referidorUID}`));
-
           if (referidorSnap.exists()) {
             const referidor = referidorSnap.val();
-
             if (referidor.paqueteActivo) {
-              // Bonos: 2000 COP al invitado, 6000 COP al referidor
               await update(ref(db, `usuarios/${uid}`), {
                 bonoReferido: 2000,
               });
-
               await update(ref(db, `usuarios/${referidorUID}`), {
                 bonoReferido: (referidor.bonoReferido || 0) + 6000,
               });
@@ -100,7 +94,7 @@ const Register = () => {
         }
       }
 
-      navigate("/dashboard");
+      navigate("/dashboard"); // o "/invest" si quieres redirigir directo a compra de paquete
     } catch (err) {
       console.error(err);
       setError("Ocurrió un error. Verifica los datos o intenta más tarde.");
@@ -108,94 +102,146 @@ const Register = () => {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-tr from-[#0f2027] via-[#203a43] to-[#2c5364] flex items-center justify-center p-6">
-      <div className="w-full max-w-lg bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-10 shadow-xl text-white">
-        <h2 className="text-3xl font-extrabold text-center mb-8">Crear cuenta</h2>
+    <main style={styles.bg}>
+      <img src={logo} alt="CartAI logo" style={styles.logo} />
+      <h1 style={styles.h1}>Crea tu cuenta en CartAI</h1>
 
-        {error && (
-          <p className="bg-red-600 text-white text-sm text-center py-2 px-4 rounded mb-6 font-semibold">
-            {error}
-          </p>
-        )}
+      {error && <p style={styles.error}>{error}</p>}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="text-sm mb-1 block text-gray-300">Nombre completo</label>
-            <input
-              name="nombre"
-              type="text"
-              value={form.nombre}
-              onChange={handleChange}
-              className="w-full bg-white/20 px-4 py-3 rounded-lg text-white placeholder-gray-300 focus:ring-2 focus:ring-yellow-400"
-              placeholder="Tu nombre"
-            />
-          </div>
+      <form onSubmit={handleSubmit} style={styles.form}>
+        <input
+          name="nombre"
+          type="text"
+          placeholder="Nombre completo"
+          value={form.nombre}
+          onChange={handleChange}
+          style={styles.input}
+        />
+        <input
+          name="email"
+          type="email"
+          placeholder="Correo electrónico"
+          value={form.email}
+          onChange={handleChange}
+          style={styles.input}
+        />
+        <input
+          name="telefono"
+          type="tel"
+          placeholder="Número de teléfono"
+          value={form.telefono}
+          onChange={handleChange}
+          style={styles.input}
+        />
+        <input
+          name="password"
+          type="password"
+          placeholder="Contraseña"
+          value={form.password}
+          onChange={handleChange}
+          style={styles.input}
+        />
+        <input
+          name="invitacion"
+          type="text"
+          placeholder="Código de invitación (opcional)"
+          value={form.invitacion}
+          onChange={handleChange}
+          style={styles.input}
+        />
 
-          <div>
-            <label className="text-sm mb-1 block text-gray-300">Correo electrónico</label>
-            <input
-              name="email"
-              type="email"
-              value={form.email}
-              onChange={handleChange}
-              className="w-full bg-white/20 px-4 py-3 rounded-lg text-white placeholder-gray-300 focus:ring-2 focus:ring-yellow-400"
-              placeholder="correo@ejemplo.com"
-            />
-          </div>
+        <button type="submit" style={{ ...styles.btn3d, ...styles.btnGold }}>
+          🏁 Registrarse
+        </button>
+      </form>
 
-          <div>
-            <label className="text-sm mb-1 block text-gray-300">Número de teléfono</label>
-            <input
-              name="telefono"
-              type="tel"
-              value={form.telefono}
-              onChange={handleChange}
-              className="w-full bg-white/20 px-4 py-3 rounded-lg text-white placeholder-gray-300 focus:ring-2 focus:ring-yellow-400"
-              placeholder="300 123 4567"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm mb-1 block text-gray-300">Contraseña</label>
-            <input
-              name="password"
-              type="password"
-              value={form.password}
-              onChange={handleChange}
-              className="w-full bg-white/20 px-4 py-3 rounded-lg text-white placeholder-gray-300 focus:ring-2 focus:ring-yellow-400"
-              placeholder="••••••••"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm mb-1 block text-gray-300">Código de invitación (opcional)</label>
-            <input
-              name="invitacion"
-              type="text"
-              value={form.invitacion}
-              onChange={handleChange}
-              className="w-full bg-white/20 px-4 py-3 rounded-lg text-white placeholder-gray-300 focus:ring-2 focus:ring-yellow-400"
-              placeholder="Ej: 5KJFD2..."
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="w-full py-3 bg-yellow-400 hover:bg-yellow-500 text-black font-bold text-lg rounded-xl transition"
-          >
-            Registrarse
-          </button>
-        </form>
-
-        <p className="text-center mt-6 text-sm">
-          ¿Ya tienes una cuenta?{" "}
-          <Link to="/login" className="text-yellow-300 hover:underline font-medium">
-            Inicia sesión
-          </Link>
-        </p>
-      </div>
+      <p style={styles.subText}>
+        ¿Ya tienes cuenta?{" "}
+        <Link to="/login" style={styles.link}>
+          Inicia sesión
+        </Link>
+      </p>
     </main>
   );
+}
+
+/* ───────────── Estilos inline 4D ───────────── */
+const styles = {
+  bg: {
+    minHeight: "100vh",
+    padding: "60px 20px",
+    background: "linear-gradient(135deg,#0f172a,#1e293b 40%,#065f46)",
+    backgroundSize: "600% 600%",
+    animation: "floatBg 30s linear infinite",
+    color: "#fff",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+  },
+  logo: {
+    width: 100,
+    filter: "drop-shadow(0 4px 8px #000a)",
+    marginBottom: 24,
+  },
+  h1: {
+    fontSize: "2rem",
+    fontWeight: 800,
+    marginBottom: 24,
+    textAlign: "center",
+  },
+  error: {
+    background: "#dc2626",
+    color: "#fff",
+    padding: "10px 16px",
+    borderRadius: 12,
+    fontWeight: 600,
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: "center",
+    boxShadow: "0 2px 6px #0008",
+  },
+  form: {
+    width: "100%",
+    maxWidth: 400,
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+  },
+  input: {
+    padding: "14px 18px",
+    borderRadius: 14,
+    background: "rgba(255,255,255,0.07)",
+    border: "none",
+    color: "#fff",
+    fontSize: "1rem",
+    outline: "none",
+    boxShadow: "inset 0 0 4px #ffffff22",
+  },
+  btn3d: {
+    padding: "14px 30px",
+    borderRadius: 18,
+    fontWeight: 700,
+    fontSize: "1.05rem",
+    textDecoration: "none",
+    boxShadow: "4px 4px 14px #000a",
+    transition: "transform 0.2s, box-shadow 0.2s",
+    cursor: "pointer",
+    border: "none",
+  },
+  btnGold: {
+    background: "linear-gradient(90deg,#facc15,#eab308)",
+    color: "#000",
+  },
+  subText: {
+    marginTop: 30,
+    textAlign: "center",
+    fontSize: 14,
+    opacity: 0.85,
+  },
+  link: {
+    color: "#facc15",
+    fontWeight: 600,
+    textDecoration: "underline",
+  },
 };
 
-export default Register;
