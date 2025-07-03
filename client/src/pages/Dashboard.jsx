@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { Link } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "../firebase";
 import { ref, onValue, set, update } from "firebase/database";
 import clsx from "clsx";
 
-/* Utilidades ------------------------------------------------------------- */
+/* Utilidades */
 const COP = (n) => n.toLocaleString("es-CO");
 const hoyISO = () => new Date().toISOString().split("T")[0];
 const diasEntre = (isoDate) => {
@@ -17,18 +17,19 @@ const diasEntre = (isoDate) => {
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
-  const [sidebar, setSidebar] = useState(true);
-  const [showIAInfo, setShowIAInfo] = useState(false);
+  const [sidebar, setSidebar] = useState(false);
+  const [mostrarModalIA, setMostrarModalIA] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
+    const offAuth = onAuthStateChanged(auth, (user) => {
       if (!user) return;
       const uid = user.uid;
       const userRef = ref(db, `usuarios/${uid}`);
 
       onValue(userRef, (snap) => {
-        if (snap.exists()) setData(snap.val());
-        else {
+        if (snap.exists()) {
+          setData(snap.val());
+        } else {
           const def = {
             iaActiva: false,
             iaSaldo: 0,
@@ -45,7 +46,8 @@ export default function Dashboard() {
         }
       });
     });
-    return () => unsub();
+
+    return () => offAuth();
   }, []);
 
   const reclamarIA = () => {
@@ -62,6 +64,17 @@ export default function Dashboard() {
     });
   };
 
+  const activarIA = () => {
+    const uid = auth.currentUser.uid;
+    update(ref(db, `usuarios/${uid}`), {
+      iaActiva: true,
+      iaInicio: hoyISO(),
+      iaUltimoReclamo: null,
+      iaSaldo: 0,
+    });
+    setMostrarModalIA(false);
+  };
+
   if (!data) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white animate-pulse">
@@ -71,6 +84,7 @@ export default function Dashboard() {
   }
 
   const [nombre] = auth.currentUser.displayName?.split("|") || ["Usuario"];
+
   const {
     iaActiva,
     iaSaldo = 0,
@@ -85,16 +99,38 @@ export default function Dashboard() {
 
   const IA_DIAS_TOTALES = 60;
   const iaDiasPasados = iaInicio ? diasEntre(iaInicio) : 0;
-  const iaPct = Math.min(Math.round((iaDiasPasados / IA_DIAS_TOTALES) * 100), 100);
-  const iaPuedeReclamar = iaActiva && iaUltimoReclamo !== hoyISO() && iaDiasPasados < IA_DIAS_TOTALES;
-  const packs = Object.values(paquetes).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-  const movs = [...movimientos].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 5);
+  const iaPct = Math.min(
+    Math.round((iaDiasPasados / IA_DIAS_TOTALES) * 100),
+    100
+  );
+  const iaPuedeReclamar =
+    iaActiva && iaUltimoReclamo !== hoyISO() && iaDiasPasados < IA_DIAS_TOTALES;
+
+  const packsArr = Object.values(paquetes || {});
+  const activos = packsArr
+    .filter((p) => p.diasRestantes > 0)
+    .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+
+  const finalizados = packsArr
+    .filter((p) => p.diasRestantes <= 0)
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+  const movs = [...movimientos]
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+    .slice(0, 5);
 
   return (
     <div className="min-h-screen flex bg-gradient-to-tr from-[#0f2027] via-[#203a43] to-[#2c5364] text-white">
       <Sidebar open={sidebar} toggle={() => setSidebar(!sidebar)} />
 
       <main className="flex-1 p-6 md:ml-64 space-y-12">
+        <button
+          onClick={() => setSidebar(!sidebar)}
+          className="md:hidden text-3xl text-yellow-300"
+        >
+          ☰
+        </button>
+
         <header className="text-center space-y-1">
           <h1 className="text-4xl font-bold">Bienvenido, {nombre} 👋</h1>
           <p className="text-gray-300">
@@ -102,31 +138,21 @@ export default function Dashboard() {
           </p>
         </header>
 
+        {/* Modal IA gratuita si aún no está activa */}
         {!iaActiva && (
-          <div className="bg-black/70 backdrop-blur-md fixed inset-0 z-50 flex items-center justify-center">
-            <div className="bg-white text-black p-6 rounded-xl shadow-2xl max-w-md space-y-4 text-center">
-              <h2 className="text-2xl font-bold">¡Felicidades!</h2>
-              <p>
-                Has sido seleccionado para acceder a la IA gratuita de CartAI.
-                Podrás reclamar $1,000 diarios por 60 días, totalmente gratis.
-              </p>
-              <p>
-                Esta IA está pensada para que descubras cómo puedes generar ingresos de forma automatizada con nuestra tecnología.
-              </p>
-              <button
-                onClick={() => {
-                  const uid = auth.currentUser.uid;
-                  update(ref(db, `usuarios/${uid}`), {
-                    iaActiva: true,
-                    iaInicio: hoyISO(),
-                    iaUltimoReclamo: null,
-                  });
-                }}
-                className="w-full py-2 bg-yellow-400 hover:bg-yellow-500 text-black font-bold rounded shadow"
-              >
-                Activar IA gratuita
-              </button>
-            </div>
+          <div className="bg-white/10 border border-yellow-400 rounded-lg p-4 shadow-2xl text-white space-y-4">
+            <h2 className="text-2xl font-bold">🎁 ¡Activa tu IA gratuita!</h2>
+            <p>
+              Durante 60 días recibirás $1 000 diarios por probar nuestra
+              inteligencia artificial. Este saldo se suma a tus bonos y puede
+              ayudarte a invertir más adelante. No necesitas pagar nada.
+            </p>
+            <button
+              onClick={activarIA}
+              className="bg-green-500 hover:bg-green-600 text-black px-4 py-2 rounded shadow-md font-bold"
+            >
+              Activar IA gratuita
+            </button>
           </div>
         )}
 
@@ -147,11 +173,22 @@ export default function Dashboard() {
         </section>
 
         <SectionTitle>📦 Paquetes activos</SectionTitle>
-        {packs.length === 0 ? (
-          <p className="text-gray-300">Aún no tienes paquetes.</p>
+        {activos.length === 0 ? (
+          <p className="text-gray-300">Aún no tienes paquetes activos.</p>
         ) : (
           <div className="grid lg:grid-cols-2 gap-6">
-            {packs.map((p) => (
+            {activos.map((p) => (
+              <PackageCard key={p.id} p={p} />
+            ))}
+          </div>
+        )}
+
+        <SectionTitle>📁 Paquetes finalizados</SectionTitle>
+        {finalizados.length === 0 ? (
+          <p className="text-gray-300">Aún no has finalizado ningún paquete.</p>
+        ) : (
+          <div className="grid lg:grid-cols-2 gap-6">
+            {finalizados.map((p) => (
               <PackageCard key={p.id} p={p} />
             ))}
           </div>
@@ -164,28 +201,17 @@ export default function Dashboard() {
           <MovList movs={movs} />
         )}
 
-        {/* Apartado final profesional */}
         <SectionTitle>💡 ¿Por qué invertir con nosotros?</SectionTitle>
-        <div className="bg-white/10 p-6 rounded-xl shadow-2xl text-white space-y-4 text-lg">
-          <p>
-            🚀 <strong>Tecnología de punta:</strong> Nuestra IA trabaja las 24 h para generar rendimiento de tus inversiones.
-          </p>
-          <p>
-            🛡 <strong>Seguridad:</strong> Tus datos y fondos están protegidos con los más altos estándares.
-          </p>
-          <p>
-            🎁 <strong>Bonos y referidos:</strong> Gana bonos por cada persona que invites, si tienes un paquete activo.
-          </p>
-          <p>
-            💸 <strong>Retiros fáciles:</strong> Solicita tus ganancias directamente a tu cuenta Nequi o Daviplata.
-          </p>
-        </div>
+        <ul className="list-disc pl-5 space-y-2 text-white/90">
+          <li>Inteligencia artificial que optimiza tus ganancias</li>
+          <li>Bonos diarios sin costo inicial</li>
+          <li>Retiro rápido y seguro por Nequi o Daviplata</li>
+          <li>Invita y gana con el sistema de referidos</li>
+        </ul>
       </main>
     </div>
   );
 }
-
-/* ---------------- COMPONENTES UI ---------------- */
 
 const Sidebar = ({ open, toggle }) => (
   <aside
@@ -205,7 +231,7 @@ const Sidebar = ({ open, toggle }) => (
       <NavLink to="/game" label="Jugar" emoji="🎮" />
       <button
         onClick={() => signOut(auth)}
-        className="mt-6 bg-red-500 hover:bg-red-600 py-2 px-4 rounded shadow text-white"
+        className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded shadow font-bold mt-6"
       >
         Cerrar sesión
       </button>
@@ -234,7 +260,7 @@ const SectionTitle = ({ children }) => (
   </h2>
 );
 
-const Metric = ({ title, value, color }) => {
+function Metric({ title, value, color }) {
   const c =
     color === "green"
       ? "text-green-400"
@@ -247,7 +273,7 @@ const Metric = ({ title, value, color }) => {
       <h3 className={`text-3xl font-bold ${c}`}>${COP(value)}</h3>
     </div>
   );
-};
+}
 
 const IAWidget = ({ saldo, pct, puede, onClaim, diasRest }) => (
   <section className="bg-blue-100 text-black rounded-xl p-6 shadow-2xl border border-blue-300 space-y-4">
@@ -264,7 +290,7 @@ const IAWidget = ({ saldo, pct, puede, onClaim, diasRest }) => (
       <div
         style={{ width: `${pct}%` }}
         className="h-full bg-gradient-to-r from-yellow-400 to-green-400 transition-all"
-      />
+      ></div>
     </div>
     <p className="text-right text-xs">{pct}% de $60 000</p>
     <button
@@ -312,7 +338,7 @@ const MovList = ({ movs }) => (
     {movs.map((m, idx) => (
       <li
         key={idx}
-        className="bg-white/10 border border-white/20 rounded-lg p-4 shadow-md flex justify-between items-center"
+        className="bg-white/10 border border-white/20 rounded-lg p-4 shadow-md animate-fade-in flex justify-between items-center"
       >
         <span>{m.concepto}</span>
         <span
