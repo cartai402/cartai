@@ -38,9 +38,18 @@ export default function Admin() {
     onValue(pagosRef, (snap) => {
       const datos = snap.val() || {};
       const todos = [];
+
       for (const uid in datos) {
         for (const pagoId in datos[uid]) {
-          todos.push({ ...datos[uid][pagoId], uid, pagoId });
+          const p = datos[uid][pagoId];
+          todos.push({
+            uid,
+            pagoId,
+            paqueteNom: p.paquete?.nombre || "Sin nombre",
+            inversion: p.paquete?.inversion || 0,
+            referencia: p.referencia || "Sin ref.",
+            fecha: p.fecha || null,
+          });
         }
       }
       setPagos(todos);
@@ -50,6 +59,7 @@ export default function Admin() {
     onValue(retirosRef, (snap) => {
       const datos = snap.val() || {};
       const todos = [];
+
       for (const uid in datos) {
         for (const retiroId in datos[uid]) {
           todos.push({ ...datos[uid][retiroId], uid, retiroId });
@@ -63,26 +73,29 @@ export default function Admin() {
     });
   }, [usuario]);
 
-  const aprobarPago = async (uid, pagoId, inversion, paquete) => {
+  const aprobarPago = async (uid, pagoId, inversion, paqueteNom) => {
     const userRef = ref(db, `usuarios/${uid}`);
     const userSnap = await get(userRef);
-    const data = userSnap.val();
+    const userData = userSnap.val();
 
-    const nuevoSaldo = (data.saldoInversion || 0) + inversion;
-
-    await push(ref(db, `usuarios/${uid}/paquetes`), {
-      ...paquete,
-      fecha: Date.now(),
-      estado: "activo",
-    });
+    const nuevoSaldo = (userData.saldoInversion || 0) + inversion;
 
     await update(userRef, {
       saldoInversion: nuevoSaldo,
       paqueteActivo: true,
     });
 
+    const historialRef = ref(db, `usuarios/${uid}/paquetes`);
+    await push(historialRef, {
+      nombre: paqueteNom,
+      inversion,
+      fecha: Date.now(),
+      estado: "activo",
+    });
+
     await remove(ref(db, `pagosPendientes/${uid}/${pagoId}`));
-    setMensaje(`✅ Pago aprobado para ${data.nombre}`);
+
+    setMensaje("✅ Pago aprobado, paquete activado y saldo sumado.");
   };
 
   const rechazarPago = async (uid, pagoId) => {
@@ -108,85 +121,76 @@ export default function Admin() {
 
   const crearCodigo = () => {
     if (!codigoPromo.trim()) return;
-    const codigo = codigoPromo.toUpperCase();
-    const codigoRef = ref(db, `codigosPromocionales/${codigo}`);
-    set(codigoRef, { activo: true, creado: Date.now() });
+    const codigoRef = ref(db, `codigosPromocionales/${codigoPromo}`);
+    set(codigoRef, { activo: true });
     setCodigoPromo("");
-    setMensaje("🎉 Código promocional creado.");
+    setMensaje("🎉 Código creado correctamente.");
   };
 
   return (
-    <main
-      className="min-h-screen p-6 text-white bg-[#0f0f1a] bg-gradient-to-br from-[#0f0f1a] to-[#1a1a2e] via-[#121223] flex justify-center items-start"
-      style={{ fontFamily: "Segoe UI, sans-serif" }}
-    >
-      <div className="w-full max-w-6xl space-y-12">
-        <h1 className="text-4xl font-extrabold text-center text-purple-300 drop-shadow-md">
-          🧠 Panel Administrativo - CartAI
-        </h1>
+    <main className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f766e] text-white p-6">
+      <div className="max-w-6xl mx-auto space-y-10">
+        <h1 className="text-3xl font-extrabold text-center tracking-tight">⚙️ Panel Administrativo CartAI</h1>
 
         {mensaje && (
-          <p className="text-center text-green-400 bg-green-800/20 py-2 rounded shadow-lg">
+          <div className="text-center bg-green-600/10 border border-green-400 text-green-300 font-medium py-2 rounded">
             {mensaje}
-          </p>
+          </div>
         )}
 
-        {/* Estadísticas */}
-        <section className="grid sm:grid-cols-3 gap-6">
-          {[
-            {
-              label: "Usuarios registrados",
-              value: Object.keys(usuarios).length,
-            },
-            {
-              label: "Total inversión",
-              value: "$" +
-                Object.values(usuarios)
-                  .reduce((a, b) => a + (b.saldoInversion || 0), 0)
-                  .toLocaleString(),
-            },
-            {
-              label: "IA activas",
-              value: Object.values(usuarios).filter((u) => u.iaActiva).length,
-            },
-          ].map((stat, i) => (
-            <div
-              key={i}
-              className="bg-white/5 p-6 rounded-xl shadow-2xl border border-white/10 hover:scale-[1.02] transition-all"
-            >
-              <p className="text-sm text-gray-400">{stat.label}</p>
-              <h2 className="text-3xl font-bold text-purple-200 mt-1">{stat.value}</h2>
-            </div>
-          ))}
+        {/* Estadísticas generales */}
+        <section className="grid sm:grid-cols-3 gap-6 text-center">
+          <div className="bg-white/10 p-5 rounded-xl border border-white/10 shadow-lg">
+            <p className="text-gray-300 text-sm">Usuarios registrados</p>
+            <h2 className="text-2xl font-bold">{Object.keys(usuarios).length}</h2>
+          </div>
+          <div className="bg-white/10 p-5 rounded-xl border border-white/10 shadow-lg">
+            <p className="text-gray-300 text-sm">Total inversión</p>
+            <h2 className="text-2xl font-bold text-green-400">
+              $
+              {Object.values(usuarios)
+                .reduce((a, b) => a + (b.saldoInversion || 0), 0)
+                .toLocaleString()}
+            </h2>
+          </div>
+          <div className="bg-white/10 p-5 rounded-xl border border-white/10 shadow-lg">
+            <p className="text-gray-300 text-sm">IA activas</p>
+            <h2 className="text-2xl font-bold text-yellow-400">
+              {
+                Object.values(usuarios).filter((u) => u.paqueteActivo === true)
+                  .length
+              }
+            </h2>
+          </div>
         </section>
 
         {/* Pagos pendientes */}
-        <section className="space-y-4">
-          <h2 className="text-2xl font-bold text-yellow-300">💳 Pagos Pendientes</h2>
+        <section>
+          <h2 className="text-xl font-bold mb-4">🧾 Pagos pendientes</h2>
           {pagos.length === 0 ? (
             <p className="text-gray-400">No hay pagos por aprobar.</p>
           ) : (
             pagos.map((p, i) => (
               <div
                 key={i}
-                className="bg-[#1e1e2f] p-4 rounded-lg border border-white/10 shadow-md"
+                className="bg-white/5 p-4 rounded-lg mb-4 border border-white/10 shadow-md space-y-1"
               >
-                <p><strong>👤 Usuario:</strong> {usuarios[p.uid]?.nombre || p.uid}</p>
-                <p><strong>📦 Paquete:</strong> {p.paquete?.nombre}</p>
-                <p><strong>💰 Monto:</strong> ${p.paquete?.inversion?.toLocaleString()}</p>
-                <p><strong>🧾 Referencia:</strong> {p.referencia || "—"}</p>
-                <div className="flex gap-2 mt-3">
+                <p><b>👤 Usuario:</b> {usuarios[p.uid]?.nombre || p.uid}</p>
+                <p><b>📦 Paquete:</b> {p.paqueteNom}</p>
+                <p><b>💰 Monto:</b> ${p.inversion.toLocaleString()}</p>
+                <p><b>🧾 Ref.:</b> {p.referencia}</p>
+                <div className="flex gap-3 mt-3">
                   <button
                     onClick={() =>
-                      aprobarPago(p.uid, p.pagoId, p.paquete.inversion, p.paquete)
+                      aprobarPago(p.uid, p.pagoId, p.inversion, p.paqueteNom)
                     }
-                    className="bg-green-500 hover:bg-green-600 px-4 py-2 rounded font-bold shadow-md transition"
+                    className="bg-green-600 hover:bg-green-700 px-4 py-1 rounded-md font-semibold"
                   >
                     ✅ Aprobar
                   </button>
                   <button
                     onClick={() => rechazarPago(p.uid, p.pagoId)}
-                    className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded font-bold shadow-md transition"
+                    className="bg-red-600 hover:bg-red-700 px-4 py-1 rounded-md font-semibold"
                   >
                     ❌ Rechazar
                   </button>
@@ -197,29 +201,31 @@ export default function Admin() {
         </section>
 
         {/* Retiros pendientes */}
-        <section className="space-y-4">
-          <h2 className="text-2xl font-bold text-cyan-300">💸 Retiros Pendientes</h2>
+        <section>
+          <h2 className="text-xl font-bold mb-4">🏦 Retiros pendientes</h2>
           {retiros.length === 0 ? (
             <p className="text-gray-400">No hay retiros pendientes.</p>
           ) : (
             retiros.map((r, i) => (
               <div
                 key={i}
-                className="bg-[#1c1c2c] p-4 rounded-lg border border-white/10 shadow-md"
+                className="bg-white/5 p-4 rounded-lg mb-4 border border-white/10 shadow-md space-y-1"
               >
-                <p><strong>👤 Usuario:</strong> {usuarios[r.uid]?.nombre || r.uid}</p>
-                <p><strong>💵 Monto:</strong> ${r.monto.toLocaleString()}</p>
-                <p><strong>🏦 Cuenta:</strong> {r.cuenta} ({r.tipo})</p>
-                <div className="flex gap-2 mt-3">
+                <p><b>👤 Usuario:</b> {usuarios[r.uid]?.nombre || r.uid}</p>
+                <p><b>💵 Monto:</b> ${r.monto.toLocaleString()}</p>
+                <p><b>📱 Cuenta:</b> {r.cuenta} ({r.tipo})</p>
+                <div className="flex gap-3 mt-3">
                   <button
-                    onClick={() => aprobarRetiro(r.uid, r.retiroId, r.monto)}
-                    className="bg-green-500 hover:bg-green-600 px-4 py-2 rounded font-bold shadow-md transition"
+                    onClick={() =>
+                      aprobarRetiro(r.uid, r.retiroId, r.monto)
+                    }
+                    className="bg-green-600 hover:bg-green-700 px-4 py-1 rounded-md font-semibold"
                   >
                     ✅ Aprobar
                   </button>
                   <button
                     onClick={() => rechazarRetiro(r.uid, r.retiroId)}
-                    className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded font-bold shadow-md transition"
+                    className="bg-red-600 hover:bg-red-700 px-4 py-1 rounded-md font-semibold"
                   >
                     ❌ Rechazar
                   </button>
@@ -231,18 +237,18 @@ export default function Admin() {
 
         {/* Crear código promocional */}
         <section className="space-y-3">
-          <h2 className="text-2xl font-bold text-pink-300">🎁 Crear Código Promocional</h2>
+          <h2 className="text-xl font-bold">🎁 Crear código promocional</h2>
           <div className="flex gap-2">
             <input
               type="text"
-              placeholder="Ej: BONO50"
+              placeholder="Ej: BONO500"
               value={codigoPromo}
-              onChange={(e) => setCodigoPromo(e.target.value)}
-              className="bg-white/10 px-4 py-3 rounded-md w-full placeholder-white text-white border border-white/20"
+              onChange={(e) => setCodigoPromo(e.target.value.toUpperCase())}
+              className="bg-white/10 p-3 rounded-md w-full placeholder-white"
             />
             <button
               onClick={crearCodigo}
-              className="bg-yellow-400 hover:bg-yellow-500 text-black font-bold px-4 py-2 rounded-md shadow-lg"
+              className="bg-yellow-400 hover:bg-yellow-500 text-black px-4 py-2 rounded-md font-bold"
             >
               Crear
             </button>
