@@ -4,7 +4,7 @@ import { auth, db } from "../firebase";
 import { ref, onValue, set } from "firebase/database";
 import { v4 as uuidv4 } from "uuid";
 
-/* ──────────────────────── PAQUETES ────────────────────────── */
+/* ─────────── PAQUETES: diarios y finales ─────────── */
 const dailyPacks = [
   {
     id: "ai-starter",
@@ -141,7 +141,7 @@ const fixedPacks = [
   },
 ];
 
-/* ───────────────────────── COMPONENTE ───────────────────────── */
+/* ───────────────────── COMPONENTE ───────────────────── */
 export default function Invest() {
   const [packCounts, setPackCounts] = useState({});
   const navigate = useNavigate();
@@ -182,12 +182,12 @@ export default function Invest() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-tr from-[#141e30] to-[#243b55] p-6 text-white">
-      <div className="max-w-6xl mx-auto space-y-12">
+    <main className="min-h-screen bg-gradient-to-br from-[#141e30] to-[#243b55] p-6 text-white">
+      <div className="max-w-7xl mx-auto space-y-16">
         <header className="text-center">
-          <h1 className="text-3xl font-bold mb-2">📊 Paquetes de inversión</h1>
+          <h1 className="text-4xl font-bold mb-3">📊 Paquetes de inversión</h1>
           <p className="text-gray-300">
-            Selecciona un plan y deja que la IA genere tus ganancias.
+            Elige tu paquete y deja que la inteligencia artificial trabaje por ti.
           </p>
         </header>
 
@@ -197,6 +197,8 @@ export default function Invest() {
           counts={packCounts}
           onBuy={invertir}
         />
+
+        <div className="h-12" /> {/* Espacio visual entre secciones */}
 
         <PackGroup
           titulo="🏁 Pago único al final"
@@ -209,38 +211,39 @@ export default function Invest() {
   );
 }
 
-/* ─────────────────────── SUB-COMPONENTE ─────────────────────── */
+/* ─────────────────── SUBCOMPONENTE: GRUPO ─────────────────── */
 const PackGroup = ({ titulo, lista, counts, onBuy }) => (
-  <section>
-    <h2 className="text-2xl font-semibold mb-4 border-b border-white/20 pb-2">
-      {titulo}
-    </h2>
-    <div className="grid md:grid-cols-3 gap-8">
+  <section className="space-y-8">
+    <h2 className="text-3xl font-semibold border-b border-white/20 pb-2">{titulo}</h2>
+    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-10">
       {lista.map((p) => (
         <div
           key={p.id}
-          className={`relative rounded-3xl bg-gradient-to-br ${p.color} p-6 shadow-2xl flex flex-col gap-4 transition-transform hover:scale-[1.03]`}
+          className={`relative rounded-3xl bg-gradient-to-br ${p.color} p-6 shadow-2xl flex flex-col gap-4 transition-transform hover:scale-[1.03] hover:shadow-[0_20px_60px_rgba(0,0,0,0.6)]`}
         >
+          {/* Repeticiones */}
           {counts[p.id] && (
-            <span className="absolute -top-3 right-3 bg-yellow-400 text-black text-xs font-bold py-1 px-3 rounded-full shadow">
-              {counts[p.id]}×
+            <span className="absolute -top-3 right-3 bg-yellow-300 text-black text-xs font-bold py-1 px-3 rounded-full shadow-md">
+              {counts[p.id]}× comprado
             </span>
           )}
 
-          <div className="space-y-2">
-            <h3 className="text-2xl font-bold flex items-center gap-2">
-              {p.icono} {p.nombre}
-            </h3>
-            <p>💸 Inversión: <b>${p.inversion.toLocaleString()}</b></p>
-            {p.ganDia && <p>📈 Ganas diario: <b>${p.ganDia.toLocaleString()}</b></p>}
-            {p.pagoFinal && <p>🎯 Recibes al final: <b>${p.pagoFinal.toLocaleString()}</b></p>}
-            <p>⏳ Duración: <b>{p.dur} días</b></p>
-            <p className="text-sm italic text-white/80 mt-2">💡 {p.consejo}</p>
-          </div>
+          <h3 className="text-2xl font-bold flex items-center gap-2">
+            {p.icono} {p.nombre}
+          </h3>
+
+          <ul className="space-y-1 text-sm">
+            <li>💰 Inversión: <b>${p.inversion.toLocaleString()}</b></li>
+            {p.ganDia && <li>📈 Ganas diario: <b>${p.ganDia.toLocaleString()}</b></li>}
+            {p.pagoFinal && <li>🎯 Recibes al final: <b>${p.pagoFinal.toLocaleString()}</b></li>}
+            <li>⏳ Duración: <b>{p.dur} días</b></li>
+          </ul>
+
+          <p className="text-xs italic text-white/90 mt-2">💡 {p.consejo}</p>
 
           <button
             onClick={() => onBuy(p)}
-            className="mt-auto py-3 rounded-lg font-bold bg-white text-black hover:bg-yellow-300 shadow-md transition"
+            className="mt-auto py-3 rounded-xl font-bold bg-white text-black hover:bg-yellow-300 shadow-md transition-all"
           >
             🛒 Invertir ahora
           </button>
