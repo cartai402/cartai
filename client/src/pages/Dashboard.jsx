@@ -1,31 +1,46 @@
+/* ──────────────────────────────  Dashboard.jsx  ───────────────────────────── */
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "../firebase";
-import { ref, onValue, set, update } from "firebase/database";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  onAuthStateChanged,
+  signOut as fbSignOut,
+} from "firebase/auth";
+import {
+  ref,
+  onValue,
+  set,
+  update,
+} from "firebase/database";
 import clsx from "clsx";
 
-const COP = (n) => n.toLocaleString("es-CO");
+import { auth, db } from "../firebase";
+
+/* Utilidades ------------------------------------------------------ */
+const COP = (n = 0) => `$${n.toLocaleString("es-CO")}`;
 const hoyISO = () => new Date().toISOString().split("T")[0];
-const diasEntre = (isoDate) => {
-  if (!isoDate) return 0;
-  const d1 = new Date(isoDate);
-  const d2 = new Date();
-  return Math.floor((d2 - d1) / 864e5);
-};
+const diasEntre = (d) =>
+  d ? Math.floor((new Date() - new Date(d)) / 86_400_000) : 0;
 
+/* Componente principal ------------------------------------------- */
 export default function Dashboard() {
-  const [data, setData] = useState(null);
-  const [iaModal, setIaModal] = useState(false);
+  const [userData, setUserData] = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const navigate = useNavigate();
 
+  /* Carga datos de Firebase */
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (!user) return;
+    const offAuth = onAuthStateChanged(auth, (user) => {
+      if (!user) return navigate("/login");
       const uid = user.uid;
       const userRef = ref(db, `usuarios/${uid}`);
+
       onValue(userRef, (snap) => {
-        if (snap.exists()) setData(snap.val());
-        else {
+        if (snap.exists()) {
+          const data = snap.val();
+          setUserData(data);
+          if (!data.iaActiva) setShowModal(true);
+        } else {
+          /* nodo mínimo si no existe */
           const def = {
             iaActiva: false,
             iaSaldo: 0,
@@ -38,39 +53,42 @@ export default function Dashboard() {
             movimientos: [],
           };
           set(userRef, def);
-          setData(def);
+          setUserData(def);
+          setShowModal(true);
         }
       });
     });
-    return () => unsub();
-  }, []);
+    return () => offAuth();
+  }, [navigate]);
 
-  const activarIA = () => {
+  /* Acciones ------------------------------------------------------ */
+  const activarIA = async () => {
     const uid = auth.currentUser.uid;
-    update(ref(db, `usuarios/${uid}`), {
-      iaActiva: true,
-      iaInicio: hoyISO(),
-      iaUltimoReclamo: "",
-    });
-    setIaModal(false);
+    await update(ref(db, `usuarios/${uid}`), { iaActiva: true, iaInicio: hoyISO() });
+    setShowModal(false);
   };
 
-  const reclamarIA = () => {
-    if (!data?.iaActiva) return;
+  const reclamarIA = async () => {
+    if (!userData) return;
+    const { iaActiva, iaUltimoReclamo } = userData;
+    if (!iaActiva) return;
+    if (iaUltimoReclamo === hoyISO()) return;
+
     const uid = auth.currentUser.uid;
-    const hoy = hoyISO();
-    if (data.iaUltimoReclamo === hoy) return;
-    update(ref(db, `usuarios/${uid}`), {
-      iaSaldo: (data.iaSaldo || 0) + 1000,
-      saldoBonos: (data.saldoBonos || 0) + 1000,
-      iaUltimoReclamo: hoy,
+    await update(ref(db, `usuarios/${uid}`), {
+      iaSaldo: (userData.iaSaldo || 0) + 1000,
+      saldoBonos: (userData.saldoBonos || 0) + 1000,
+      iaUltimoReclamo: hoyISO(),
     });
   };
 
-  if (!data) {
+  const signOut = () => fbSignOut(auth);
+
+  /* Derivados ------------------------------------------------------ */
+  if (!userData) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black text-white">
-        Cargando...
+      <div className="flex items-center justify-center min-h-screen bg-black text-white">
+        Cargando…
       </div>
     );
   }
@@ -86,17 +104,16 @@ export default function Dashboard() {
     saldoBonos = 0,
     paquetes = {},
     movimientos = [],
-  } = data;
+  } = userData;
 
-  const IA_DIAS_TOTALES = 60;
-  const iaDiasPasados = iaInicio ? diasEntre(iaInicio) : 0;
-  const iaPct = Math.min(
-    Math.round((iaDiasPasados / IA_DIAS_TOTALES) * 100),
-    100
-  );
-  const iaPuedeReclamar =
-    iaActiva && iaUltimoReclamo !== hoyISO() && iaDiasPasados < IA_DIAS_TOTALES;
+  /* IA progreso */
+  const DAYS_TOTAL = 60;
+  const diasPasados = diasEntre(iaInicio);
+  const pctIA = Math.min(Math.round((diasPasados / DAYS_TOTAL) * 100), 100);
+  const puedeReclamar =
+    iaActiva && iaUltimoReclamo !== hoyISO() && diasPasados < DAYS_TOTAL;
 
+  /* Ordena datos */
   const packs = Object.values(paquetes).sort(
     (a, b) => new Date(a.fecha) - new Date(b.fecha)
   );
@@ -104,148 +121,174 @@ export default function Dashboard() {
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
     .slice(0, 5);
 
+  /* Render -------------------------------------------------------- */
   return (
-    <div className="min-h-screen bg-gradient-to-tr from-[#0f2027] via-[#203a43] to-[#2c5364] text-white px-4">
-      {/* Botones fijos arriba */}
-      <nav className="flex flex-wrap gap-3 justify-center py-6">
-        <MenuButton to="/dashboard" emoji="🏠" label="Dashboard" />
-        <MenuButton to="/invest" emoji="💼" label="Invertir" />
-        <MenuButton to="/withdraw" emoji="💸" label="Retirar" />
-        <MenuButton to="/referrals" emoji="📨" label="Invitar" />
-        <MenuButton to="/game" emoji="🎮" label="Jugar" />
+    <div className="min-h-screen w-full bg-gradient-to-br from-slate-900 to-slate-700 text-white flex flex-col">
+      {/* ─────────── NAV superior ─────────── */}
+      <nav className="flex flex-wrap justify-center gap-4 py-4 shadow-md bg-white/10 backdrop-blur-lg">
+        <NavButton to="/dashboard" label="Dashboard" emoji="🏠" />
+        <NavButton to="/invest" label="Invertir" emoji="💼" />
+        <NavButton to="/withdraw" label="Retirar" emoji="💸" />
+        <NavButton to="/referrals" label="Invitar" emoji="📨" />
+        <NavButton to="/game" label="Jugar" emoji="🎮" />
+        <button
+          onClick={signOut}
+          className="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg shadow-md transition"
+        >
+          Cerrar sesión
+        </button>
       </nav>
 
-      {/* Modal IA */}
-      {!iaActiva && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center">
-          <div className="bg-white text-black rounded-lg shadow-2xl max-w-lg p-6 space-y-4 text-center">
-            <h2 className="text-2xl font-bold text-green-700">
-              ¡Felicidades! 🎉
+      {/* ─────────── CONTENIDO ─────────── */}
+      <main className="w-full max-w-5xl mx-auto p-6 space-y-10">
+        {/* Saludo */}
+        <header className="text-center space-y-1">
+          <h1 className="text-4xl font-bold">
+            Bienvenido, {nombre} <span>👋</span>
+          </h1>
+          <p className="text-gray-300">Resumen de tu inversión</p>
+        </header>
+
+        {/* IA Widget */}
+        {iaActiva && (
+          <IAWidget
+            saldo={iaSaldo}
+            pct={pctIA}
+            puede={puedeReclamar}
+            onClaim={reclamarIA}
+            diasRest={Math.max(DAYS_TOTAL - diasPasados, 0)}
+          />
+        )}
+
+        {/* Métricas */}
+        <section className="grid sm:grid-cols-3 gap-6">
+          <Metric title="Invertido" value={saldoInversion} color="yellow" />
+          <Metric title="Ganado" value={saldoGanado} color="green" />
+          <Metric title="Bonos" value={saldoBonos} color="cyan" />
+        </section>
+
+        {/* Paquetes activos */}
+        <SectionTitle>📦 Paquetes activos</SectionTitle>
+        {packs.length === 0 ? (
+          <p className="text-gray-400">Aún no tienes paquetes.</p>
+        ) : (
+          <div className="grid lg:grid-cols-2 gap-6">
+            {packs.map((p) => (
+              <PackageCard key={p.id} p={p} />
+            ))}
+          </div>
+        )}
+
+        {/* Movimientos */}
+        <SectionTitle>📝 Últimos movimientos</SectionTitle>
+        {movs.length === 0 ? (
+          <p className="text-gray-400">Sin movimientos registrados.</p>
+        ) : (
+          <MovList movs={movs} />
+        )}
+      </main>
+
+      {/* ─────────── MODAL IA ─────────── */}
+      {showModal && (
+        <Modal>
+          <div className="bg-slate-800 text-white rounded-xl p-8 max-w-md w-full shadow-2xl">
+            <h2 className="text-2xl font-bold text-center mb-4">
+              🎉 ¡Felicidades!
             </h2>
-            <p>
-              Has sido seleccionado para activar la IA gratuita. Obtén $1.000
-              diarios por 60 días.
+            <p className="text-center mb-4">
+              Has sido seleccionado para
+              <strong> activar la IA gratuita de CartAI</strong>.
+              Obtendrás <strong>$1.000 COP diarios</strong> durante{" "}
+              <strong>60 días</strong>, sin inversión inicial.
             </p>
-            <p>
-              Esta IA está diseñada para ayudarte a familiarizarte con la
-              inversión recuerda que para retirarlo debes contar con un paquete activo .
+            <p className="text-center text-sm text-gray-300 mb-6">
+              Podrás retirar estos bonos cuando actives tu primer paquete real.
+              Aprovecha para conocer cómo funciona nuestra plataforma.
             </p>
             <button
               onClick={activarIA}
-              className="mt-4 bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded shadow-lg transition"
+              className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-lg shadow-lg transition"
             >
               Activar IA gratuita
             </button>
           </div>
-        </div>
+        </Modal>
       )}
-
-      {/* Saludo */}
-      <div className="text-center mb-10">
-        <h1 className="text-4xl font-bold">Bienvenido, {nombre} 👋</h1>
-        <p className="text-gray-300">Resumen de tu inversión</p>
-      </div>
-
-      {/* IA Widget */}
-      {iaActiva && (
-        <section className="bg-white/10 rounded-xl p-6 mb-10 shadow-xl space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xl font-bold text-yellow-300">🤖 IA gratuita</h2>
-            <span className="text-sm">{IA_DIAS_TOTALES - iaDiasPasados} días restantes</span>
-          </div>
-          <p>
-            Saldo acumulado: <strong>${COP(iaSaldo)}</strong>
-          </p>
-          <div className="w-full bg-white/20 rounded-full h-3">
-            <div
-              style={{ width: `${iaPct}%` }}
-              className="h-full bg-gradient-to-r from-yellow-400 to-green-400 rounded-full"
-            />
-          </div>
-          <p className="text-right text-sm">{iaPct}% de $60.000</p>
-          <button
-            onClick={reclamarIA}
-            disabled={!iaPuedeReclamar}
-            className={clsx(
-              "w-full py-2 rounded font-bold transition",
-              iaPuedeReclamar
-                ? "bg-green-400 hover:bg-green-500 text-black shadow-lg"
-                : "bg-gray-400 cursor-not-allowed"
-            )}
-          >
-            {iaPuedeReclamar ? "Reclamar $1 000 de hoy" : "Reclamado hoy"}
-          </button>
-        </section>
-      )}
-
-      {/* Métricas */}
-      <div className="grid sm:grid-cols-3 gap-6 mb-12">
-        <Metric title="Invertido" value={saldoInversion} color="yellow" />
-        <Metric title="Ganado" value={saldoGanado} color="green" />
-        <Metric title="Bonos" value={saldoBonos} color="blue" />
-      </div>
-
-      {/* Paquetes */}
-      <SectionTitle>📦 Paquetes activos</SectionTitle>
-      {packs.length === 0 ? (
-        <p className="text-gray-300">Aún no tienes paquetes.</p>
-      ) : (
-        <div className="grid lg:grid-cols-2 gap-6 mb-12">
-          {packs.map((p) => (
-            <PackageCard key={p.id} p={p} />
-          ))}
-        </div>
-      )}
-
-      {/* Movimientos */}
-      <SectionTitle>📝 Últimos movimientos</SectionTitle>
-      <MovList movs={movs} />
-
-      {/* Final */}
-      <SectionTitle>🌟 ¿Por qué invertir con nosotros?</SectionTitle>
-      <div className="bg-white/10 p-6 rounded-xl text-sm text-gray-200 shadow-xl leading-relaxed mb-10">
-        <p>
-          CartAI combina tecnología de punta con simulación real de mercados
-          para ofrecerte una experiencia educativa y rentable. Nuestra IA
-          gratuita es solo el comienzo: al invertir con nosotros, accedes a
-          paquetes con rentabilidad asegurada, atención personalizada y una
-          comunidad en crecimiento. Ideal tanto para principiantes como para
-          inversionistas experimentados.
-        </p>
-      </div>
     </div>
   );
 }
 
-const MenuButton = ({ to, emoji, label }) => (
+/* ─────────── Sub-componentes ─────────── */
+const NavButton = ({ to, label, emoji }) => (
   <Link
     to={to}
-    className="bg-white/10 hover:bg-white/20 text-white px-5 py-2 rounded-lg shadow-lg font-bold transition transform hover:scale-105"
+    className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg shadow-md transition"
   >
-    {emoji} {label}
+    <span>{emoji}</span>
+    {label}
   </Link>
 );
 
 const SectionTitle = ({ children }) => (
-  <h2 className="text-2xl font-semibold border-b border-white/20 pb-2 mb-4">
+  <h2 className="text-2xl font-semibold pt-4 border-b border-white/20">
     {children}
   </h2>
 );
 
 function Metric({ title, value, color }) {
-  const c =
+  const colorClass =
     color === "green"
       ? "text-green-400"
-      : color === "blue"
-      ? "text-blue-400"
-      : "text-yellow-400";
+      : color === "cyan"
+      ? "text-cyan-300"
+      : "text-yellow-300";
   return (
     <div className="bg-white/10 rounded-xl p-6 text-center shadow-lg">
       <p className="text-sm text-gray-300">{title}</p>
-      <h3 className={`text-3xl font-bold ${c}`}>${COP(value)}</h3>
+      <h3 className={`text-3xl font-bold ${colorClass}`}>
+        {COP(value)}
+      </h3>
     </div>
   );
 }
+
+const IAWidget = ({ saldo, pct, puede, onClaim, diasRest }) => (
+  <section className="bg-slate-700/70 rounded-xl p-6 shadow-lg">
+    <div className="flex justify-between items-center mb-2">
+      <h3 className="text-xl font-bold flex items-center gap-1">
+        🤖 IA gratuita
+      </h3>
+      <span className="text-sm text-yellow-300">
+        {diasRest} días restantes
+      </span>
+    </div>
+
+    <p className="mb-2">
+      Saldo acumulado: <strong>{COP(saldo)}</strong>
+    </p>
+
+    <div className="w-full bg-white/20 rounded-full h-3 mb-1">
+      <div
+        style={{ width: `${pct}%` }}
+        className="h-full bg-gradient-to-r from-yellow-400 to-green-400 rounded-full"
+      />
+    </div>
+    <p className="text-xs text-right">{pct}% de {COP(60_000)}</p>
+
+    <button
+      onClick={onClaim}
+      disabled={!puede}
+      className={clsx(
+        "w-full mt-4 py-2 rounded-md font-bold transition",
+        puede
+          ? "bg-green-500 hover:bg-green-600"
+          : "bg-gray-500 cursor-not-allowed"
+      )}
+    >
+      {puede ? "Reclamar $1.000 de hoy" : "Reclamado hoy"}
+    </button>
+  </section>
+);
 
 const PackageCard = ({ p }) => {
   const pct = Math.round(
@@ -253,43 +296,50 @@ const PackageCard = ({ p }) => {
   );
   return (
     <div className="bg-white/10 rounded-xl p-6 shadow-lg space-y-3">
-      <div className="flex justify-between">
+      <header className="flex justify-between">
         <h4 className="font-bold">{p.nombre}</h4>
         <span className="text-sm text-gray-300">
-          {p.diasRestantes}/{p.diasTotales} días
+          {p.diasRestantes}/{p.diasTotales} d
         </span>
-      </div>
-      <p className="text-sm">💸 Invertido: ${COP(p.invertido)}</p>
-      <p className="text-sm">🏁 Total: ${COP(p.total)}</p>
-      <div className="w-full bg-white/20 h-3 rounded-full">
+      </header>
+      <p className="text-sm">💸 Invertido: {COP(p.invertido)}</p>
+      <p className="text-sm">🏁 Recibirás: {COP(p.total)}</p>
+
+      <div className="w-full bg-white/20 rounded-full h-3">
         <div
           style={{ width: `${pct}%` }}
           className="h-full bg-gradient-to-r from-yellow-400 to-green-400 rounded-full"
         />
       </div>
-      <p className="text-right text-xs">{pct}%</p>
     </div>
   );
 };
 
 const MovList = ({ movs }) => (
-  <ul className="space-y-3 mb-10">
-    {movs.map((m, idx) => (
+  <ul className="space-y-3">
+    {movs.map((m, i) => (
       <li
-        key={idx}
-        className="bg-white/10 p-4 rounded-lg flex justify-between items-center shadow"
+        key={i}
+        className="flex justify-between bg-white/10 p-4 rounded-lg shadow-md"
       >
         <span>{m.concepto}</span>
         <span
           className={clsx(
-            "font-semibold",
-            m.monto.startsWith("-") ? "text-red-400" : "text-green-400"
+            m.monto.startsWith("-") ? "text-red-400" : "text-green-400",
+            "font-semibold"
           )}
         >
           {m.monto}
         </span>
-        <span className="text-xs text-gray-400">{m.fecha}</span>
+        <span className="text-xs text-gray-300">{m.fecha}</span>
       </li>
     ))}
   </ul>
 );
+
+const Modal = ({ children }) => (
+  <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+    {children}
+  </div>
+);
+/* ─────────────────────────────────────────────────────────────────────────── */
