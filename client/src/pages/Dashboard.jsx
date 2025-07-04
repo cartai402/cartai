@@ -1,3 +1,4 @@
+// Dashboard.jsx
 import React, { useEffect, useState } from 'react';
 import { getDatabase, ref, onValue, update, get } from 'firebase/database';
 import { getAuth, signOut } from 'firebase/auth';
@@ -21,16 +22,15 @@ export default function Dashboard() {
     onValue(userRef, snap => {
       const d = snap.val();
       setData(d);
+
       if (!d?.iaActiva) setShowIA(true);
 
-      // detectar si hay paquetes nuevos no reclamados (primer día)
+      // Activar paquete si está recién aprobado
       if (d?.paquetes) {
         Object.entries(d.paquetes).forEach(([id, p]) => {
           if (!p.iniciado) {
-            // agregar la ganancia inicial
-            const nuevaGanancia = (d.ganancias ?? 0) + (p.ganDia ?? 0);
             update(ref(db, 'usuarios/' + usr.uid), {
-              ganancias: nuevaGanancia,
+              ganancias: (d.ganancias ?? 0) + (p.ganDia ?? 0),
               [`paquetes/${id}/iniciado`]: true,
               [`paquetes/${id}/reclamado`]: false,
               [`paquetes/${id}/diasRestantes`]: p.dur - 1,
@@ -54,10 +54,9 @@ export default function Dashboard() {
 
   const reclamar = () => {
     if (!data || data.iaReclamado || data.iaDiasRestantes <= 0) return;
-    const nuevoSaldo = (data.iaSaldo ?? 0) + 1000;
 
     update(ref(db, 'usuarios/' + usr.uid), {
-      iaSaldo: nuevoSaldo,
+      iaSaldo: (data.iaSaldo ?? 0) + 1000,
       iaDiasRestantes: data.iaDiasRestantes - 1,
       iaReclamado: true,
     });
@@ -65,10 +64,9 @@ export default function Dashboard() {
 
   const reclamarPaquete = (id, p) => {
     if (!data?.paquetes?.[id] || p.reclamado || p.diasRestantes <= 0) return;
-    const nuevaGanancia = (data.ganancias ?? 0) + (p.ganDia ?? 0);
 
     update(ref(db, 'usuarios/' + usr.uid), {
-      ganancias: nuevaGanancia,
+      ganancias: (data.ganancias ?? 0) + (p.ganDia ?? 0),
       [`paquetes/${id}/reclamado`]: true,
       [`paquetes/${id}/diasRestantes`]: p.diasRestantes - 1,
     });
@@ -170,7 +168,7 @@ export default function Dashboard() {
   );
 }
 
-/* ==== COMPONENTES ==== */
+/* ==== Componentes ==== */
 const Loader = () => (
   <div style={{ ...styles.bg, justifyContent: 'center', alignItems: 'center' }}>
     Cargando…
@@ -215,7 +213,7 @@ const Modal = ({ onClose, onOk }) => (
   </div>
 );
 
-/* ==== ESTILOS ==== */
+/* ==== Estilos ==== */
 const styles = {
   bg: { background: '#0a0f1e', minHeight: '100vh', color: 'white', padding: 15 },
   navWrap: { display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 25 },
