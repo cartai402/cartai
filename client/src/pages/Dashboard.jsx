@@ -21,10 +21,8 @@ export default function Dashboard() {
     onValue(userRef, snap => {
       const d = snap.val();
       setData(d);
-
       if (!d?.iaActiva) setShowIA(true);
 
-      // Detectar si hay paquetes nuevos
       if (d?.paquetes) {
         Object.entries(d.paquetes).forEach(([id, p]) => {
           if (!p.iniciado) {
@@ -32,18 +30,10 @@ export default function Dashboard() {
             update(ref(db, 'usuarios/' + usr.uid), {
               ganancias: nuevaGanancia,
               [`paquetes/${id}/iniciado`]: true,
-              [`paquetes/${id}/reclamado`]: false,
+              [`paquetes/${id}/reclamado`]: true, // ✅ SE AGREGA ESTO
               [`paquetes/${id}/diasRestantes`]: p.dur - 1,
             });
-
-            // Mostrar mensaje motivador con detalles del paquete
-            setShowFelicidades({
-              tipo: 'paquete',
-              nombre: p.nombre,
-              valor: p.valor,
-              ganDia: p.ganDia,
-              dur: p.dur
-            });
+            setShowFelicidades(p.nombre);
           }
         });
       }
@@ -169,12 +159,17 @@ export default function Dashboard() {
         <div style={styles.modalOverlay}>
           <div style={styles.modalBox}>
             <h2>🎉 ¡Felicidades!</h2>
-            {showFelicidades.tipo === 'ia' ? (
+            {typeof showFelicidades === 'string' ? (
+              <p style={{ marginTop: 10 }}>
+                Tu paquete <b>{showFelicidades}</b> ha sido activado correctamente.
+                <br /><br />
+                Recuerda reclamar tus ganancias diarias cada día.
+              </p>
+            ) : showFelicidades.tipo === 'ia' ? (
               <p style={{ marginTop: 10 }}>
                 Has activado la <b>IA gratuita</b> por 60 días.<br />
                 Puedes reclamar <b>$1.000 COP diarios</b>.<br />
-                Para retirar tu bono, necesitarás un paquete activo y mínimo <b>$50.000</b> en bonos acumulados.<br /><br />
-                También publicaremos <b>códigos redimibles</b> en el grupo oficial para obtener más bonos. ¡Atento!
+                Para retirar tu bono, necesitarás un paquete activo y mínimo <b>$50.000</b> en bonos acumulados.
               </p>
             ) : (
               <p style={{ marginTop: 10 }}>
@@ -182,8 +177,7 @@ export default function Dashboard() {
                 Tu paquete <b>{showFelicidades.nombre}</b> ha sido activado.<br />
                 Inversión: <b>${COP(showFelicidades.valor)}</b><br />
                 Ganancia diaria: <b>${COP(showFelicidades.ganDia)}</b><br />
-                Duración: <b>{showFelicidades.dur} días</b><br /><br />
-                Ya recibiste tu primera ganancia. ¡Recuerda reclamar todos los días!
+                Duración: <b>{showFelicidades.dur} días</b>
               </p>
             )}
             <button style={{ ...styles.cta, width: '100%' }} onClick={() => setShowFelicidades(null)}>Entendido</button>
