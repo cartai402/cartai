@@ -1,163 +1,145 @@
-import { useState, useEffect } from "react";
+// Game.jsx
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-const generarFichas = () => {
-  const fichas = [];
-  for (let i = 0; i <= 6; i++) {
-    for (let j = i; j <= 6; j++) {
-      fichas.push([i, j]);
-    }
-  }
-  return fichas.sort(() => Math.random() - 0.5);
+// Generador de fichas
+const fullSet = () => {
+  const s = [];
+  for (let i = 0; i <= 6; i++) for (let j = i; j <= 6; j++) s.push([i, j]);
+  return s;
 };
+const shuffle = (a) => a.sort(() => Math.random() - 0.5);
+const sumHand = (h) => h.reduce((t, [a, b]) => t + a + b, 0);
+const highestDouble = (h) =>
+  h.filter((x) => x[0] === x[1]).sort((a, b) => b[0] - a[0])[0];
 
-const Ficha = ({ valor, onClick, seleccionable }) => (
+// Componente de ficha
+const Tile = ({ v, onClick, highlight, vertical }) => (
   <div
-    className={`w-14 h-24 bg-white border-2 border-black rounded-md flex flex-col items-center justify-between px-2 py-1 text-black font-bold text-lg cursor-pointer ${
-      seleccionable ? "hover:scale-105 transition-transform" : "opacity-50"
-    }`}
-    onClick={seleccionable ? onClick : undefined}
+    className={`w-16 h-28 m-1 rounded-md shadow-lg cursor-pointer bg-white border-2 border-black flex flex-col items-center justify-center ${
+      highlight ? "ring-4 ring-yellow-400" : ""
+    } ${vertical ? "" : "rotate-90"}`}
+    onClick={onClick}
   >
-    <div>{valor[0]}</div>
-    <div className="w-full border-t border-gray-500 my-1"></div>
-    <div>{valor[1]}</div>
+    <div className="text-2xl font-bold">{v[0]}</div>
+    <hr className="border-t-2 border-black w-full my-1" />
+    <div className="text-2xl font-bold">{v[1]}</div>
   </div>
 );
 
+// Componente principal
 export default function Game() {
   const [mesa, setMesa] = useState([]);
   const [mano, setMano] = useState([]);
-  const [ia, setIa] = useState([]);
-  const [turno, setTurno] = useState("jugador");
+  const [aiHand, setAI] = useState([]);
+  const [turno, setTurno] = useState("user");
   const [msg, setMsg] = useState("Tu turno");
-  const [ganador, setGanador] = useState(null);
+  const [fin, setFin] = useState(false);
 
-  const reiniciar = () => {
-    const fichas = generarFichas();
-    const jugador = fichas.slice(0, 7);
-    const iaFichas = fichas.slice(7, 14);
-    const primera = fichas[14];
-    setMano(jugador);
-    setIa(iaFichas);
-    setMesa([primera]);
-    setTurno("jugador");
-    setMsg("Tu turno");
-    setGanador(null);
-  };
+  // Al iniciar partida
+  useEffect(() => {
+    const pool = shuffle(fullSet());
+    const uHand = pool.slice(0, 7);
+    const iaH = pool.slice(7, 14);
+    const start = highestDouble(uHand) || highestDouble(iaH) || uHand[0];
+    setMesa([start]);
 
-  useEffect(reiniciar, []);
-
-  const puedeJugar = (ficha) => {
-    if (!mesa.length) return true;
-    const izquierda = mesa[0][0];
-    const derecha = mesa.at(-1)[1];
-    return ficha.includes(izquierda) || ficha.includes(derecha);
-  };
-
-  const colocarFicha = (ficha) => {
-    if (turno !== "jugador" || !puedeJugar(ficha)) return;
-
-    const izquierda = mesa[0][0];
-    const derecha = mesa.at(-1)[1];
-    const invertir = ([a, b]) => [b, a];
-
-    if (ficha.includes(izquierda)) {
-      const f = ficha[1] === izquierda ? ficha : invertir(ficha);
-      setMesa((m) => [f, ...m]);
+    if (iaH.includes(start)) {
+      setAI(iaH.filter((t) => t !== start));
     } else {
-      const f = ficha[0] === derecha ? ficha : invertir(ficha);
-      setMesa((m) => [...m, f]);
+      setMano(uHand.filter((t) => t !== start));
+      setAI(iaH);
+      setTurno("ai");
+      setMsg("IA juega primero");
     }
+  }, []);
 
-    setMano((m) => {
-      const nueva = m.filter((x) => x !== ficha);
-      if (nueva.length === 0) {
-        setGanador("jugador");
-        setMsg("🎉 ¡Ganaste!");
+  const puedeJugar = (tile) => {
+    if (!mesa.length) return true;
+    const [l, r] = [mesa[0][0], mesa.at(-1)[1]];
+    return tile[0] === l || tile[1] === l || tile[0] === r || tile[1] === r;
+  };
+
+  const jugarUsuario = (tile) => {
+    if (turno !== "user" || !puedeJugar(tile)) return;
+    const [l, r] = [mesa[0][0], mesa.at(-1)[1]];
+    if (tile[1] === l || tile[0] === l) {
+      setMesa([[...tile].reverse(), ...mesa]);
+    } else {
+      setMesa([...mesa, tile]);
+    }
+    setMano(mano.filter((x) => x !== tile));
+    setTurno("ai");
+    setMsg("Turno de la IA");
+  };
+
+  const jugarIA = () => {
+    if (turno !== "ai") return;
+    setTimeout(() => {
+      const [l, r] = [mesa[0][0], mesa.at(-1)[1]];
+      const jugada = aiHand.find((t) =>
+        t[0] === l || t[1] === l || t[0] === r || t[1] === r
+      );
+      if (jugada) {
+        if (jugada[1] === l || jugada[0] === l) {
+          setMesa([[...jugada].reverse(), ...mesa]);
+        } else {
+          setMesa([...mesa, jugada]);
+        }
+        setAI(aiHand.filter((x) => x !== jugada));
+        setTurno("user");
+        setMsg("Tu turno");
       } else {
-        setTurno("ia");
-        setMsg("Turno de la IA");
+        setMsg("IA pasa, tu turno");
+        setTurno("user");
       }
-      return nueva;
-    });
+    }, 800);
   };
 
   useEffect(() => {
-    if (turno !== "ia" || ganador) return;
-
-    const izquierda = mesa[0][0];
-    const derecha = mesa.at(-1)[1];
-    const jugada = ia.find((f) => f.includes(izquierda) || f.includes(derecha));
-
-    if (jugada) {
-      const invertir = ([a, b]) => [b, a];
-      const ladoIzq = jugada.includes(izquierda);
-      const f = ladoIzq
-        ? jugada[1] === izquierda
-          ? jugada
-          : invertir(jugada)
-        : jugada[0] === derecha
-        ? jugada
-        : invertir(jugada);
-
-      setTimeout(() => {
-        setMesa((m) => (ladoIzq ? [f, ...m] : [...m, f]));
-        setIa((h) => {
-          const nueva = h.filter((x) => x !== jugada);
-          if (nueva.length === 0) {
-            setGanador("ia");
-            setMsg("La IA ganó");
-          } else {
-            setTurno("jugador");
-            setMsg("Tu turno");
-          }
-          return nueva;
-        });
-      }, 800);
-    } else {
-      setTimeout(() => {
-        setTurno("jugador");
-        setMsg("La IA pasó");
-      }, 600);
-    }
+    if (turno === "ai") jugarIA();
   }, [turno]);
 
+  useEffect(() => {
+    if (!mano.length) {
+      setMsg("🎉 ¡Ganaste!");
+      setFin(true);
+    } else if (!aiHand.length) {
+      setMsg("😓 La IA ganó.");
+      setFin(true);
+    }
+  }, [mano, aiHand]);
+
   return (
-    <main className="min-h-screen flex flex-col bg-[#0e1320] text-white">
-      <header className="text-center p-3 text-lg font-medium bg-black/50 shadow-md">
-        {msg}
-      </header>
+    <main className="min-h-screen flex flex-col items-center bg-green-900 text-white p-4">
+      <header className="text-lg font-bold py-2">{msg}</header>
 
-      <section className="flex-1 flex items-center justify-center flex-wrap gap-2 p-4 bg-gradient-to-br from-blue-900 to-black">
-        {mesa.map((f, i) => (
-          <Ficha key={i} valor={f} />
+      {/* Mesa de juego */}
+      <div className="bg-green-800 border-4 border-yellow-700 rounded-xl w-full max-w-3xl min-h-[200px] p-3 flex flex-wrap justify-center">
+        {mesa.map((t, i) => (
+          <Tile key={i} v={t} vertical />
         ))}
-        {mesa.length === 0 && (
-          <p className="text-gray-400 text-sm">Coloca la primera ficha…</p>
-        )}
-      </section>
-
-      <footer className="bg-gray-900 p-2 flex flex-wrap justify-center gap-2 sticky bottom-0 shadow-inner z-10">
-        {mano.map((f, i) => (
-          <Ficha key={i} valor={f} onClick={() => colocarFicha(f)} seleccionable={puedeJugar(f)} />
-        ))}
-      </footer>
-
-      <div className="text-center text-sm py-2 bg-black/70">
-        {ganador && (
-          <button
-            onClick={reiniciar}
-            className="bg-green-500 px-4 py-2 rounded-md text-white font-semibold shadow hover:bg-green-600"
-          >
-            🔁 Jugar de nuevo
-          </button>
-        )}
-        {!ganador && (
-          <Link to="/dashboard" className="text-yellow-400 underline">
-            ← Volver al Dashboard
-          </Link>
-        )}
       </div>
+
+      {/* Mano del usuario */}
+      {!fin && (
+        <div className="mt-4 flex flex-wrap justify-center">
+          {mano.map((t, i) => (
+            <Tile
+              key={i}
+              v={t}
+              onClick={() => jugarUsuario(t)}
+              highlight={puedeJugar(t)}
+            />
+          ))}
+        </div>
+      )}
+
+      <footer className="mt-6 text-center">
+        <Link to="/dashboard" className="text-yellow-300 underline">
+          ← Volver al Dashboard
+        </Link>
+      </footer>
     </main>
   );
 }
