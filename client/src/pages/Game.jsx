@@ -1,8 +1,8 @@
 /************************************************************
- *  Dominó CartAI – mesa clásica                            *
- *  · 7 fichas por lado + banca                             *
- *  · Robar automático si no puedes jugar                   *
- *  · IA simple                                             *
+ *  Dominó CartAI – clásico responsivo                      *
+ *  · 7 fichas por jugador + banca                          *
+ *  · IA sencilla + robo automático                         *
+ *  · Mesa horizontal, fichas compactas                     *
  ***********************************************************/
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -30,7 +30,8 @@ const pickAI = (hand, l, r) => {
       if (score < bestScore) {
         bestScore = score;
         best = t;
-        bestSide = fitsL && !fitsR ? "left" : fitsR && !fitsL ? "right" : "either";
+        bestSide =
+          fitsL && !fitsR ? "left" : fitsR && !fitsL ? "right" : "either";
       }
     }
   });
@@ -38,28 +39,28 @@ const pickAI = (hand, l, r) => {
 };
 
 /* ---------- ficha SVG ---------- */
-const Tile = ({ v, onClick, small, highlight }) => (
+const Tile = ({ v, onClick, small = false, highlight = false, rotated = false }) => (
   <svg
     onClick={onClick}
     viewBox="0 0 80 140"
     className={clsx(
-      small ? "w-8 sm:w-10" : "w-12 sm:w-16",
-      "cursor-pointer",
-      highlight && "ring-2 ring-yellow-400 rounded-md"
+      rotated ? "h-8 sm:h-10 w-auto" : small ? "h-10 sm:h-12 w-auto" : "h-16 sm:h-20 w-auto",
+      highlight && "ring-2 ring-yellow-400 rounded"
     )}
+    style={rotated ? { transform: "rotate(90deg)" } : undefined}
   >
     <rect width="80" height="140" rx="10" fill="#fff" />
-    <line x1="5" y1="70" x2="75" y2="70" stroke="#888" strokeDasharray="4 4" />
-    <text x="40" y="50" textAnchor="middle" fontSize="42" fontFamily="monospace">
+    <line x1="5" y1="70" x2="75" y2="70" stroke="#777" strokeDasharray="4 4" />
+    <text x="40" y="50" textAnchor="middle" fontSize="42" fontFamily="monospace" fill="#222">
       {v[0]}
     </text>
-    <text x="40" y="120" textAnchor="middle" fontSize="42" fontFamily="monospace">
+    <text x="40" y="120" textAnchor="middle" fontSize="42" fontFamily="monospace" fill="#222">
       {v[1]}
     </text>
   </svg>
 );
 
-/* ---------- mesa / tablero ---------- */
+/* ---------- tablero ---------- */
 const Board = ({
   mesa,
   mano,
@@ -67,27 +68,28 @@ const Board = ({
   msg,
   onPlay,
   canPlay,
-  turn,
   oppCount,
 }) => (
-  <main className="min-h-screen flex flex-col bg-slate-800 text-white">
-    <header className="p-2 text-center bg-black/40">{msg}</header>
+  <main className="min-h-screen flex flex-col bg-gradient-to-br from-slate-900 to-slate-800 text-white">
+    <header className="py-2 text-center bg-black/40 text-sm">{msg}</header>
 
-    {/* mesa */}
-    <section className="flex-1 flex flex-wrap items-center justify-center gap-1 p-2">
-      {mesa.length === 0 && <p className="text-gray-300">Empieza…</p>}
-      {mesa.map((t, i) => (
-        <Tile key={i} v={t} />
-      ))}
+    {/* mesa horizontal con scroll */}
+    <section className="flex-1 overflow-x-auto flex items-center px-4 py-3">
+      <div className="flex gap-1 items-center">
+        {mesa.length === 0 && <p className="text-gray-300">Empieza…</p>}
+        {mesa.map((t, i) => (
+          <Tile key={i} v={t} rotated />
+        ))}
+      </div>
     </section>
 
-    {/* estado rival + banca */}
-    <div className="flex justify-between text-xs bg-black/50 px-3 py-1">
-      <span>Fichas IA: {oppCount}</span>
+    {/* info rival + banca */}
+    <div className="flex justify-between text-xs bg-black/50 px-4 py-1">
+      <span>IA: {oppCount}</span>
       <span>Banca: {stock.length}</span>
     </div>
 
-    {/* mano del jugador */}
+    {/* mano */}
     <footer className="bg-black/60 p-2 flex flex-wrap justify-center gap-1">
       {mano.map((t, i) => (
         <Tile
@@ -100,15 +102,15 @@ const Board = ({
       ))}
     </footer>
 
-    <div className="text-center text-sm bg-black/60 py-1">
-      <Link to="/dashboard" className="underline">
+    <div className="text-center text-xs py-2 bg-black/60">
+      <Link to="/dashboard" className="underline text-yellow-300">
         ← Dashboard
       </Link>
     </div>
   </main>
 );
 
-/* ---------- Juego completo ---------- */
+/* ---------- juego completo ---------- */
 export default function Game() {
   const [mesa, setMesa] = useState([]);
   const [mano, setMano] = useState([]);
@@ -117,7 +119,7 @@ export default function Game() {
   const [turn, setTurn] = useState("user"); // 'user' | 'ai'
   const [msg, setMsg] = useState("");
 
-  /* repartir inicial */
+  /* repartir */
   useEffect(() => {
     const pool = shuffle(fullSet());
     setMano(pool.slice(0, 7));
@@ -125,14 +127,12 @@ export default function Game() {
     setStock(pool.slice(14));
   }, []);
 
-  /* al montar mano/ia, decide primera ficha */
+  /* decidir primera ficha */
   useEffect(() => {
-    if (mano.length === 0 || ia.length === 0 || mesa.length) return;
-    const first =
-      highestDouble(mano) ||
-      highestDouble(ia) ||
-      mano[0]; /* siempre habrá algo */
+    if (!mano.length || !ia.length || mesa.length) return;
+    const first = highestDouble(mano) || highestDouble(ia) || mano[0];
     setMesa([first]);
+
     if (mano.includes(first)) {
       setMano((h) => h.filter((x) => x !== first));
       setMsg("Tu turno");
@@ -140,48 +140,26 @@ export default function Game() {
     } else {
       setIA((h) => h.filter((x) => x !== first));
       setMsg("IA jugó primero");
-      setTurn("user"); // después de primera jugada IA, te toca
+      setTurn("user");
     }
   }, [mano, ia]);
 
-  /* helpers */
   const ends = mesa.length
     ? { left: mesa[0][0], right: mesa.at(-1)[1] }
     : { left: null, right: null };
 
   const canPlay = (t) =>
     ends.left === null ||
-    t[0] === ends.left ||
-    t[1] === ends.left ||
-    t[0] === ends.right ||
-    t[1] === ends.right;
-
-  /* jugador hace clic */
-  const onPlay = (tile) => {
-    if (turn !== "user" || !canPlay(tile)) return;
-
-    // ¿encaja en ambos lados?
-    const fitsLeft =
-      ends.left === null || tile[0] === ends.left || tile[1] === ends.left;
-    const fitsRight =
-      ends.right === null || tile[0] === ends.right || tile[1] === ends.right;
-
-    let side = "right";
-    if (fitsLeft && fitsRight) {
-      side = window.confirm("¿Colocar a la izquierda? Aceptar = izquierda · Cancelar = derecha")
-        ? "left"
-        : "right";
-    } else side = fitsLeft ? "left" : "right";
-
-    placeTile(tile, side, "user");
-  };
+    t.includes(ends.left) ||
+    t.includes(ends.right);
 
   /* colocar ficha en mesa */
   const placeTile = (tile, side, who) => {
+    const rotate = (v, ref) => (v[0] === ref ? v : [v[1], v[0]]);
     setMesa((m) =>
       side === "left"
-        ? [[tile[0] === ends.left ? tile[0] : tile[1], tile[0] === ends.left ? tile[1] : tile[0]], ...m]
-        : [...m, [tile[0] === ends.right ? tile[0] : tile[1], tile[0] === ends.right ? tile[1] : tile[0]]]
+        ? [rotate(tile, ends.left), ...m]
+        : [...m, rotate(tile, ends.right)]
     );
     if (who === "user") {
       setMano((h) => h.filter((x) => x !== tile));
@@ -194,44 +172,48 @@ export default function Game() {
     }
   };
 
-  /* IA juega cuando es su turno */
+  /* acción jugador */
+  const onPlay = (tile) => {
+    if (turn !== "user" || !canPlay(tile)) return;
+    const fitsL = tile.includes(ends.left);
+    const fitsR = tile.includes(ends.right);
+    let side = "right";
+    if (fitsL && fitsR) {
+      side = window.confirm("¿Izquierda? (Aceptar = izq · Cancelar = der)")
+        ? "left"
+        : "right";
+    } else side = fitsL ? "left" : "right";
+    placeTile(tile, side, "user");
+  };
+
+  /* IA */
   useEffect(() => {
     if (turn !== "ai") return;
-
-    // intenta jugar
-    const move = pickAI(ia, ends.left, ends.right);
-    if (move.tile) {
-      const side =
-        move.side === "either"
-          ? ends.right !== null
-            ? "right"
-            : "left"
-          : move.side;
-      setTimeout(() => placeTile(move.tile, side, "ia"), 700);
+    const { tile, side } = pickAI(ia, ends.left, ends.right);
+    if (tile) {
+      setTimeout(() => placeTile(tile, side === "either" ? "right" : side, "ia"), 600);
     } else if (stock.length) {
       // roba
       setIA((h) => [...h, stock[0]]);
       setStock((s) => s.slice(1));
+      setTurn("user");
       setMsg("IA robó • Tu turno");
-      setTurn("user");
     } else {
-      setMsg("IA pasa • Tu turno");
       setTurn("user");
+      setMsg("IA pasa • Tu turno");
     }
   }, [turn, ia, stock, ends]);
 
-  /* si user no puede jugar => robo automático / paso */
+  /* robo automático jugador si no puede */
   useEffect(() => {
     if (turn !== "user") return;
-    if (mano.some(canPlay)) return; // sí puede
-
+    if (mano.some(canPlay)) return;
     if (stock.length) {
-      // roba una
       setMano((h) => [...h, stock[0]]);
       setStock((s) => s.slice(1));
       setMsg("Robaste 1 ficha");
     } else {
-      setMsg("No puedes jugar: pasas turno");
+      setMsg("No puedes jugar • pasas turno");
       setTurn("ai");
     }
   }, [turn, mano, stock]);
@@ -244,7 +226,6 @@ export default function Game() {
       msg={msg}
       onPlay={onPlay}
       canPlay={canPlay}
-      turn={turn}
       oppCount={ia.length}
     />
   );
