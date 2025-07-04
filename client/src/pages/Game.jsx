@@ -13,10 +13,10 @@ const generarFichas = () => {
 
 const Ficha = ({ valor, onClick, seleccionable }) => (
   <div
-    className={`w-12 h-20 sm:w-14 sm:h-24 bg-white border border-gray-800 rounded-md flex flex-col items-center justify-between p-1 text-black text-lg font-bold cursor-pointer transform transition-transform duration-200 ${
-      seleccionable ? "hover:scale-105" : "opacity-60 cursor-not-allowed"
+    className={`w-14 h-24 bg-white border-2 border-black rounded-md flex flex-col items-center justify-between px-2 py-1 text-black font-bold text-lg cursor-pointer ${
+      seleccionable ? "hover:scale-105 transition-transform" : "opacity-50"
     }`}
-    onClick={seleccionable ? onClick : null}
+    onClick={seleccionable ? onClick : undefined}
   >
     <div>{valor[0]}</div>
     <div className="w-full border-t border-gray-500 my-1"></div>
@@ -39,7 +39,7 @@ export default function Game() {
     setMano(jugador);
     setIa(iaFichas);
     setMesa([primera]);
-    setMsg("Empieza con: " + primera.join("-"));
+    setMsg("Empieza el juego");
   }, []);
 
   const puedeJugar = (ficha) => {
@@ -66,7 +66,7 @@ export default function Game() {
 
     setMano((m) => m.filter((x) => x !== ficha));
     setTurno("ia");
-    setMsg("Turno IA");
+    setMsg("Turno de la IA");
   };
 
   useEffect(() => {
@@ -92,33 +92,33 @@ export default function Game() {
         setIa((h) => h.filter((x) => x !== jugada));
         setTurno("jugador");
         setMsg("Tu turno");
-      }, 800);
+      }, 700);
     } else {
       setTimeout(() => {
         setTurno("jugador");
-        setMsg("IA pasa turno");
+        setMsg("La IA pasó, tu turno");
       }, 600);
     }
   }, [turno]);
 
   return (
-    <main className="min-h-screen flex flex-col bg-gradient-to-br from-green-900 to-green-700 text-white">
-      <header className="text-center p-2 bg-black/60 text-sm">{msg}</header>
+    <main className="min-h-screen flex flex-col bg-[#0e1320] text-white">
+      <header className="text-center p-3 text-base font-medium bg-black/50 shadow-md">{msg}</header>
 
-      <section className="flex-1 flex flex-wrap items-center justify-center gap-1 p-3 bg-[url('/fondoDomino.png')] bg-cover">
+      <section className="flex-1 flex items-center justify-center flex-wrap gap-2 p-4 bg-gradient-to-br from-blue-900 to-black">
         {mesa.map((f, i) => (
           <Ficha key={i} valor={f} />
         ))}
       </section>
 
-      <footer className="bg-black/70 p-2 flex flex-wrap justify-center gap-2">
+      <footer className="bg-gray-800 p-2 flex flex-wrap justify-center gap-2 sticky bottom-0 shadow-inner z-10">
         {mano.map((f, i) => (
           <Ficha key={i} valor={f} onClick={() => colocarFicha(f)} seleccionable={puedeJugar(f)} />
         ))}
       </footer>
 
-      <div className="text-center text-xs py-2 bg-black/50">
-        <Link to="/dashboard" className="text-yellow-300 underline">← Volver al Dashboard</Link>
+      <div className="text-center text-xs py-2 bg-black/70">
+        <Link to="/dashboard" className="text-yellow-400 underline">← Volver al Dashboard</Link>
       </div>
     </main>
   );
