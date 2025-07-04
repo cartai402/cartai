@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "../firebase";
-import { ref, get, set, push, onValue, update } from "firebase/database"; // ← añadimos update
+import { ref, get, set, push, onValue, update } from "firebase/database";
 import nequiLogo from "../assets/nequi.png";
 import daviLogo from "../assets/daviplata.png";
 
@@ -11,17 +11,15 @@ export default function Withdraw() {
   const [numero2, setNumero2] = useState("");
   const [monto, setMonto] = useState("");
   const [movimientos, setMovimientos] = useState([]);
-  const [saldo, setSaldo] = useState(0);            // ← aquí “saldo” = ganancia
+  const [saldo, setSaldo] = useState(0);
   const [showSuccess, setShowSuccess] = useState(false);
 
   const uid = auth.currentUser?.uid;
 
-  /* ---------- Load ---------- */
   useEffect(() => {
     if (!uid) return;
 
     (async () => {
-      // Cargamos la GANANCIA como saldo disponible
       const userSnap = await get(ref(db, `usuarios/${uid}`));
       setSaldo(userSnap.val()?.ganancias ?? 0);
 
@@ -36,10 +34,9 @@ export default function Withdraw() {
     });
   }, [uid]);
 
-  /* ---------- Guardar cuenta ---------- */
   const registrarCuenta = async () => {
     if (numero1 !== numero2) return alert("❌ Los números no coinciden.");
-    if (numero1.length < 9)   return alert("❌ El número ingresado no es válido.");
+    if (numero1.length < 9) return alert("❌ El número ingresado no es válido.");
 
     const cuenta = { tipo: tipoCta, numero: numero1 };
     await set(ref(db, `usuarios/${uid}/cuentaRetiro`), cuenta);
@@ -47,33 +44,39 @@ export default function Withdraw() {
     alert("✅ Cuenta registrada correctamente.");
   };
 
-  /* ---------- Retiro ---------- */
   const solicitarRetiro = async () => {
     const cant = parseInt(monto);
     if (isNaN(cant) || cant < 20000) return alert("❌ Mínimo $20.000.");
-    if (cant > saldo)               return alert("❌ Ganancia insuficiente.");
+    if (cant > saldo) return alert("❌ Ganancia insuficiente.");
 
-    // Registrar el retiro
-    await push(ref(db, `retiros/${uid}`), {
+    const retiroRef = push(ref(db, `retiros/${uid}`));
+    const retiroId = retiroRef.key;
+    const retiro = {
       monto: cant,
       estado: "pendiente",
       fecha: new Date().toISOString(),
+    };
+
+    await set(retiroRef, retiro);
+
+    const cuenta = cuentaRegistrada ?? { tipo: "—", numero: "—" };
+    await set(ref(db, `retirosPendientes/${uid}/${retiroId}`), {
+      ...retiro,
+      tipoCuenta: cuenta.tipo,
+      numeroCuenta: cuenta.numero,
     });
 
-    // Descontar de GANANCIA
     const nuevaGanancia = saldo - cant;
     await update(ref(db, `usuarios/${uid}`), { ganancias: nuevaGanancia });
 
-    // Actualizar estado local
     setSaldo(nuevaGanancia);
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 1800);
     setMonto("");
   };
 
-  /* ---------- UI ---------- */
   const opciones = [
-    { id: "nequi", nombre: "Nequi",   logo: nequiLogo },
+    { id: "nequi", nombre: "Nequi", logo: nequiLogo },
     { id: "daviplata", nombre: "Daviplata", logo: daviLogo },
   ];
 
@@ -82,11 +85,9 @@ export default function Withdraw() {
       <div className="max-w-3xl mx-auto space-y-10">
         <h1 style={styles.title}>💸 Retirar dinero</h1>
 
-        {/* ---------- cuenta ---------- */}
         {!cuentaRegistrada ? (
           <Card>
             <h2 style={styles.subtitle}>📲 Registrar cuenta</h2>
-            {/* selector */}
             <div style={{ position: "relative" }}>
               <select
                 value={tipoCta}
@@ -134,7 +135,6 @@ export default function Withdraw() {
                 {cuentaRegistrada.tipo.toUpperCase()} - {cuentaRegistrada.numero}
               </b>
             </p>
-            {/* Mostramos la ganancia como saldo disponible */}
             <p>
               Ganancia disponible: <b>${saldo.toLocaleString()}</b>
             </p>
@@ -151,7 +151,6 @@ export default function Withdraw() {
           </Card>
         )}
 
-        {/* ---------- movimientos ---------- */}
         <Card>
           <h2 style={styles.subtitle}>📄 Movimientos</h2>
           <div style={{ maxHeight: 300, overflowY: "auto", marginTop: 12 }}>
@@ -191,16 +190,13 @@ export default function Withdraw() {
         </Card>
       </div>
 
-      {/* ---------- overlay éxito ---------- */}
       {showSuccess && <SuccessOverlay />}
     </main>
   );
 }
 
-/* ---------- tarjetas ---------- */
 const Card = ({ children }) => <div style={styles.card}>{children}</div>;
 
-/* ---------- overlay éxito ---------- */
 const SuccessOverlay = () => (
   <div style={styles.overlay}>
     {Array.from({ length: 8 }).map((_, i) => (
@@ -221,7 +217,6 @@ const SuccessOverlay = () => (
   </div>
 );
 
-/* ---------- styles ---------- */
 const styles = {
   bg: { background: "#0a0f1e", minHeight: "100vh", color: "white", padding: 20 },
   title: { fontSize: 28, fontWeight: "bold", textAlign: "center" },
