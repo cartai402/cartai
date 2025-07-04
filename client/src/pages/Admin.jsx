@@ -1,4 +1,3 @@
-// Admin.jsx
 import React, { useEffect, useState } from "react";
 import { ref, onValue, update, get, remove, set } from "firebase/database";
 import { getAuth } from "firebase/auth";
@@ -28,7 +27,7 @@ export default function Admin() {
   /* ----------- cargar listados ----------- */
   useEffect(() => {
     const pagosRef = ref(db, "pagosPendientes");
-    const retirosRef = ref(db, "adminRetiros"); // ❗️ CAMBIO DE RUTA
+    const retirosRef = ref(db, "retirosPendientes"); // ✅ leer desde aquí
 
     /* PAGOS */
     onValue(pagosRef, async (s) => {
@@ -38,7 +37,7 @@ export default function Admin() {
       for (const [uid, byUser] of Object.entries(d)) {
         const n = await get(ref(db, `usuarios/${uid}/nombre`));
         nuevos[uid] = n.exists() ? n.val() : "Usuario";
-        for (const [id, p] of Object.entries(byUser)) lista.push({ ...p, uid });
+        for (const [id, p] of Object.entries(byUser)) lista.push({ ...p, uid, pagoId: id });
       }
       setPagos(lista);
       setNom((prev) => ({ ...prev, ...nuevos }));
@@ -49,10 +48,12 @@ export default function Admin() {
       const d = s.val() || {};
       const lista = [];
       const nuevos = {};
-      for (const [id, r] of Object.entries(d)) {
-        const n = await get(ref(db, `usuarios/${r.uid}/nombre`));
-        nuevos[r.uid] = n.exists() ? n.val() : "Usuario";
-        lista.push({ ...r, retiroId: id });
+      for (const [uid, byUser] of Object.entries(d)) {
+        const n = await get(ref(db, `usuarios/${uid}/nombre`));
+        nuevos[uid] = n.exists() ? n.val() : "Usuario";
+        for (const [id, r] of Object.entries(byUser)) {
+          lista.push({ ...r, retiroId: id, uid });
+        }
       }
       setRets(lista);
       setNom((prev) => ({ ...prev, ...nuevos }));
@@ -96,20 +97,14 @@ export default function Admin() {
 
   /* ----------- aprobar retiro ----------- */
   const aprobarRetiro = async (r) => {
-    const { uid, retiroId, monto } = r;
-    const uRef = ref(db, `usuarios/${uid}`);
-    const s = await get(uRef);
-    const g = s.val()?.ganancias ?? 0;
-
-    if (g < monto) return alert("❌ Saldo insuficiente.");
-    await update(uRef, { ganancias: g - monto });
-    await remove(ref(db, `adminRetiros/${retiroId}`)); // ❗️CAMBIO DE RUTA
+    const { uid, retiroId } = r;
+    await remove(ref(db, `retirosPendientes/${uid}/${retiroId}`)); // ✅ solo elimina
     alert("✅ Retiro aprobado.");
   };
 
   /* ----------- rechazar genérico ----------- */
   const rechazar = async (path, uid, id) => {
-    const fullPath = uid ? `${path}/${uid}/${id}` : `${path}/${id}`; // ✅
+    const fullPath = uid ? `${path}/${uid}/${id}` : `${path}/${id}`;
     await remove(ref(db, fullPath));
     alert("🚫 Solicitud eliminada.");
   };
@@ -130,7 +125,8 @@ export default function Admin() {
     });
 
     alert(`🎁 Código creado: ${code}`);
-    setPromoVal(""); setPromoDur("");
+    setPromoVal("");
+    setPromoDur("");
   };
 
   /* -------- UI -------- */
@@ -166,11 +162,11 @@ export default function Admin() {
             <p><b>Nombre:</b> {nombres[r.uid]}</p>
             <p><b>UID:</b> {r.uid}</p>
             <p><b>Monto:</b> ${COP(r.monto)}</p>
-            <p><b>Cuenta:</b> {r.cuenta?.tipo?.toUpperCase() ?? r.tipoCuenta} – {r.cuenta?.numero ?? r.numeroCuenta}</p>
+            <p><b>Cuenta:</b> {r.tipoCuenta?.toUpperCase()} – {r.numeroCuenta}</p>
             <p><b>Fecha:</b> {fmt(r.fecha)}</p>
             <BtnRow>
               <Btn verde onClick={() => aprobarRetiro(r)}>Aprobar</Btn>
-              <Btn rojo onClick={() => rechazar("adminRetiros", null, r.retiroId)}>Rechazar</Btn>
+              <Btn rojo onClick={() => rechazar("retirosPendientes", r.uid, r.retiroId)}>Rechazar</Btn>
             </BtnRow>
           </Card>
         ))}
