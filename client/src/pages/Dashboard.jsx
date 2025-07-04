@@ -1,4 +1,3 @@
-// Dashboard.jsx
 import React, { useEffect, useState } from 'react';
 import { getDatabase, ref, onValue, update, get } from 'firebase/database';
 import { getAuth, signOut } from 'firebase/auth';
@@ -14,7 +13,7 @@ export default function Dashboard() {
 
   const [data, setData] = useState(null);
   const [showIA, setShowIA] = useState(false);
-  const [showFelicidades, setShowFelicidades] = useState(null); // paquete activo
+  const [showFelicidades, setShowFelicidades] = useState(null); // IA o paquete activo
 
   useEffect(() => {
     if (!usr) return;
@@ -25,17 +24,26 @@ export default function Dashboard() {
 
       if (!d?.iaActiva) setShowIA(true);
 
-      // Activar paquete si está recién aprobado
+      // Detectar si hay paquetes nuevos
       if (d?.paquetes) {
         Object.entries(d.paquetes).forEach(([id, p]) => {
           if (!p.iniciado) {
+            const nuevaGanancia = (d.ganancias ?? 0) + (p.ganDia ?? 0);
             update(ref(db, 'usuarios/' + usr.uid), {
-              ganancias: (d.ganancias ?? 0) + (p.ganDia ?? 0),
+              ganancias: nuevaGanancia,
               [`paquetes/${id}/iniciado`]: true,
               [`paquetes/${id}/reclamado`]: false,
               [`paquetes/${id}/diasRestantes`]: p.dur - 1,
             });
-            setShowFelicidades(p.nombre);
+
+            // Mostrar mensaje motivador con detalles del paquete
+            setShowFelicidades({
+              tipo: 'paquete',
+              nombre: p.nombre,
+              valor: p.valor,
+              ganDia: p.ganDia,
+              dur: p.dur
+            });
           }
         });
       }
@@ -50,13 +58,18 @@ export default function Dashboard() {
       iaReclamado: false,
     });
     setShowIA(false);
+
+    setShowFelicidades({
+      tipo: 'ia'
+    });
   };
 
   const reclamar = () => {
     if (!data || data.iaReclamado || data.iaDiasRestantes <= 0) return;
+    const nuevoSaldo = (data.iaSaldo ?? 0) + 1000;
 
     update(ref(db, 'usuarios/' + usr.uid), {
-      iaSaldo: (data.iaSaldo ?? 0) + 1000,
+      iaSaldo: nuevoSaldo,
       iaDiasRestantes: data.iaDiasRestantes - 1,
       iaReclamado: true,
     });
@@ -64,9 +77,10 @@ export default function Dashboard() {
 
   const reclamarPaquete = (id, p) => {
     if (!data?.paquetes?.[id] || p.reclamado || p.diasRestantes <= 0) return;
+    const nuevaGanancia = (data.ganancias ?? 0) + (p.ganDia ?? 0);
 
     update(ref(db, 'usuarios/' + usr.uid), {
-      ganancias: (data.ganancias ?? 0) + (p.ganDia ?? 0),
+      ganancias: nuevaGanancia,
       [`paquetes/${id}/reclamado`]: true,
       [`paquetes/${id}/diasRestantes`]: p.diasRestantes - 1,
     });
@@ -148,18 +162,30 @@ export default function Dashboard() {
       }
 
       {/* ==== modal bienvenida IA ==== */}
-      {showIA && <Modal onClose={() => setShowIA(false)} onOk={activarIA} />}
+      {showIA && <ModalIA onClose={() => setShowIA(false)} onOk={activarIA} />}
 
-      {/* ==== mensaje de paquete aprobado ==== */}
+      {/* ==== mensaje de activación ==== */}
       {showFelicidades && (
         <div style={styles.modalOverlay}>
           <div style={styles.modalBox}>
             <h2>🎉 ¡Felicidades!</h2>
-            <p style={{ marginTop: 10, marginBottom: 10 }}>
-              Gracias por pertenecer a esta hermosa comunidad.<br />
-              Tu paquete <b>{showFelicidades}</b> ha sido activado con éxito.<br />
-              Ya recibiste tu primera ganancia y ahora puedes reclamar cada día.
-            </p>
+            {showFelicidades.tipo === 'ia' ? (
+              <p style={{ marginTop: 10 }}>
+                Has activado la <b>IA gratuita</b> por 60 días.<br />
+                Puedes reclamar <b>$1.000 COP diarios</b>.<br />
+                Para retirar tu bono, necesitarás un paquete activo y mínimo <b>$50.000</b> en bonos acumulados.<br /><br />
+                También publicaremos <b>códigos redimibles</b> en el grupo oficial para obtener más bonos. ¡Atento!
+              </p>
+            ) : (
+              <p style={{ marginTop: 10 }}>
+                Gracias por pertenecer a esta hermosa comunidad.<br />
+                Tu paquete <b>{showFelicidades.nombre}</b> ha sido activado.<br />
+                Inversión: <b>${COP(showFelicidades.valor)}</b><br />
+                Ganancia diaria: <b>${COP(showFelicidades.ganDia)}</b><br />
+                Duración: <b>{showFelicidades.dur} días</b><br /><br />
+                Ya recibiste tu primera ganancia. ¡Recuerda reclamar todos los días!
+              </p>
+            )}
             <button style={{ ...styles.cta, width: '100%' }} onClick={() => setShowFelicidades(null)}>Entendido</button>
           </div>
         </div>
@@ -168,7 +194,7 @@ export default function Dashboard() {
   );
 }
 
-/* ==== Componentes ==== */
+/* ==== COMPONENTES ==== */
 const Loader = () => (
   <div style={{ ...styles.bg, justifyContent: 'center', alignItems: 'center' }}>
     Cargando…
@@ -198,7 +224,7 @@ const Progress = ({ pct }) => (
   </div>
 );
 
-const Modal = ({ onClose, onOk }) => (
+const ModalIA = ({ onClose, onOk }) => (
   <div style={styles.modalOverlay}>
     <div style={styles.modalBox}>
       <h2 style={{ marginBottom: 10 }}>🎁 Bienvenido</h2>
@@ -213,7 +239,7 @@ const Modal = ({ onClose, onOk }) => (
   </div>
 );
 
-/* ==== Estilos ==== */
+/* ==== ESTILOS ==== */
 const styles = {
   bg: { background: '#0a0f1e', minHeight: '100vh', color: 'white', padding: 15 },
   navWrap: { display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 25 },
