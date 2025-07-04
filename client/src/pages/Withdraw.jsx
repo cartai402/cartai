@@ -23,7 +23,7 @@ export default function Withdraw() {
     (async () => {
       // Cargamos la GANANCIA como saldo disponible
       const userSnap = await get(ref(db, `usuarios/${uid}`));
-      setSaldo(userSnap.val()?.ganancia ?? 0);
+      setSaldo(userSnap.val()?.ganancias ?? 0);
 
       const ctaSnap = await get(ref(db, `usuarios/${uid}/cuentaRetiro`));
       if (ctaSnap.exists()) setCuentaRegistrada(ctaSnap.val());
@@ -62,7 +62,7 @@ export default function Withdraw() {
 
     // Descontar de GANANCIA
     const nuevaGanancia = saldo - cant;
-    await update(ref(db, `usuarios/${uid}`), { ganancia: nuevaGanancia });
+    await update(ref(db, `usuarios/${uid}`), { ganancias: nuevaGanancia });
 
     // Actualizar estado local
     setSaldo(nuevaGanancia);
