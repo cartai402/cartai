@@ -28,7 +28,7 @@ export default function Admin() {
   /* ----------- cargar listados ----------- */
   useEffect(() => {
     const pagosRef = ref(db, "pagosPendientes");
-    const retirosRef = ref(db, "retirosPendientes");
+    const retirosRef = ref(db, "adminRetiros"); // ❗️ CAMBIO DE RUTA
 
     /* PAGOS */
     onValue(pagosRef, async (s) => {
@@ -49,11 +49,10 @@ export default function Admin() {
       const d = s.val() || {};
       const lista = [];
       const nuevos = {};
-      for (const [uid, byUser] of Object.entries(d)) {
-        const n = await get(ref(db, `usuarios/${uid}/nombre`));
-        nuevos[uid] = n.exists() ? n.val() : "Usuario";
-        for (const [id, r] of Object.entries(byUser))
-          lista.push({ ...r, uid, retiroId: id });
+      for (const [id, r] of Object.entries(d)) {
+        const n = await get(ref(db, `usuarios/${r.uid}/nombre`));
+        nuevos[r.uid] = n.exists() ? n.val() : "Usuario";
+        lista.push({ ...r, retiroId: id });
       }
       setRets(lista);
       setNom((prev) => ({ ...prev, ...nuevos }));
@@ -104,13 +103,14 @@ export default function Admin() {
 
     if (g < monto) return alert("❌ Saldo insuficiente.");
     await update(uRef, { ganancias: g - monto });
-    await remove(ref(db, `retirosPendientes/${uid}/${retiroId}`));
+    await remove(ref(db, `adminRetiros/${retiroId}`)); // ❗️CAMBIO DE RUTA
     alert("✅ Retiro aprobado.");
   };
 
   /* ----------- rechazar genérico ----------- */
   const rechazar = async (path, uid, id) => {
-    await remove(ref(db, `${path}/${uid}/${id}`));
+    const fullPath = uid ? `${path}/${uid}/${id}` : `${path}/${id}`; // ✅
+    await remove(ref(db, fullPath));
     alert("🚫 Solicitud eliminada.");
   };
 
@@ -166,11 +166,11 @@ export default function Admin() {
             <p><b>Nombre:</b> {nombres[r.uid]}</p>
             <p><b>UID:</b> {r.uid}</p>
             <p><b>Monto:</b> ${COP(r.monto)}</p>
-            <p><b>Cuenta:</b> {r.tipoCuenta} – {r.numeroCuenta}</p>
+            <p><b>Cuenta:</b> {r.cuenta?.tipo?.toUpperCase() ?? r.tipoCuenta} – {r.cuenta?.numero ?? r.numeroCuenta}</p>
             <p><b>Fecha:</b> {fmt(r.fecha)}</p>
             <BtnRow>
               <Btn verde onClick={() => aprobarRetiro(r)}>Aprobar</Btn>
-              <Btn rojo onClick={() => rechazar("retirosPendientes", r.uid, r.retiroId)}>Rechazar</Btn>
+              <Btn rojo onClick={() => rechazar("adminRetiros", null, r.retiroId)}>Rechazar</Btn>
             </BtnRow>
           </Card>
         ))}
