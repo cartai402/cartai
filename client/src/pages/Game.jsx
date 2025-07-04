@@ -1,333 +1,304 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-const crearBaraja = () => {
-  const fichas = [];
-  for (let i = 0; i <= 6; i++) for (let j = i; j <= 6; j++) fichas.push([i, j]);
-  return fichas.sort(() => Math.random() - 0.5);
+/* helpers */
+const baraja = () => {
+  const s = [];
+  for (let i = 0; i <= 6; i++) for (let j = i; j <= 6; j++) s.push([i, j]);
+  return s.sort(() => Math.random() - 0.5);
 };
+const dobleAlto = (h) =>
+  h.filter((f) => f[0] === f[1]).sort((a, b) => b[0] - a[0])[0];
+const suma = (m) => m.reduce((t, [a, b]) => t + a + b, 0);
 
-const fichaMayorDoble = (mano) =>
-  mano.filter(f => f[0] === f[1]).sort((a, b) => b[0] - a[0])[0];
-
-const puntosFicha = [
-  [],
-  [[50, 50]],
-  [[25, 25], [75, 75]],
-  [[25, 25], [50, 50], [75, 75]],
-  [[25, 25], [25, 75], [75, 25], [75, 75]],
-  [[25, 25], [25, 75], [50, 50], [75, 25], [75, 75]],
-  [[25, 25], [25, 50], [25, 75], [75, 25], [75, 50], [75, 75]],
+/* puntos */
+const dots = [
+  [], [[50, 50]], [[25, 25], [75, 75]],
+  [[25,25],[50,50],[75,75]],
+  [[25,25],[25,75],[75,25],[75,75]],
+  [[25,25],[25,75],[50,50],[75,25],[75,75]],
+  [[25,25],[25,50],[25,75],[75,25],[75,50],[75,75]]
 ];
-
-const Cara = ({ num }) => (
-  <div style={styles.cara}>
-    {puntosFicha[num].map(([x, y], i) => (
-      <div key={i} style={{ ...styles.punto, left: `${x}%`, top: `${y}%` }} />
+const Face = ({ n }) => (
+  <div style={st.face}>
+    {dots[n].map(([x, y], i) => (
+      <div key={i} style={{ ...st.dot, left: `${x}%`, top: `${y}%` }} />
     ))}
   </div>
 );
-
-const Ficha = ({ v, onClick, activa, oculta }) => (
-  <div
-    onClick={activa ? onClick : null}
-    style={{
-      ...styles.ficha,
-      cursor: activa ? "pointer" : "default",
-      opacity: activa ? 1 : 0.7,
-      background: oculta ? "#ddd" : "#fff",
-      boxShadow: oculta ? "inset 0 0 10px #aaa" : "2px 2px 6px #0006",
-    }}
-  >
-    {oculta ? (
-      <div style={styles.oculta}></div>
-    ) : (
-      <>
-        <Cara num={v[0]} />
-        <div style={styles.divisor} />
-        <Cara num={v[1]} />
-      </>
-    )}
+const Tile = ({ v, ...pr }) => (
+  <div {...pr} style={st.tile}>
+    <Face n={v[0]} />
+    <div style={st.div} />
+    <Face n={v[1]} />
   </div>
 );
 
+/* ───────── COMPONENTE PRINCIPAL ───────── */
 export default function Game() {
+  /* state */
   const [mesa, setMesa] = useState([]);
   const [mano, setMano] = useState([]);
-  const [ia, setIA] = useState([]);
-  const [turno, setTurno] = useState("user");
-  const [msg, setMsg] = useState("Tu turno");
-  const [fin, setFin] = useState("");
-  const [ptsUser, setPtsUser] = useState(0);
-  const [ptsIA, setPtsIA] = useState(0);
+  const [ai, setAI] = useState([]);
+  const [turn, setTurn] = useState("user");
+  const [msg, setMsg] = useState("Arrastra una ficha");
+  const [pts, setPts] = useState({ user: 0, ai: 0 });
+  const [end, setEnd] = useState("");
 
-  const nuevoJuego = () => {
-    const baraja = crearBaraja();
-    const jugador = baraja.slice(0, 7);
-    const maquina = baraja.slice(7, 14);
-    const primera = fichaMayorDoble(jugador) || fichaMayorDoble(maquina) || jugador[0];
-
-    setMesa([primera]);
-    if (jugador.includes(primera)) {
-      setMano(jugador.filter(f => f !== primera));
-      setIA(maquina);
-      setTurno("ia");
-      setMsg("IA juega...");
+  /* repartir ronda */
+  const nuevaRonda = () => {
+    const d = baraja();
+    const u = d.slice(0, 7);
+    const a = d.slice(7, 14);
+    const first = dobleAlto(u) || dobleAlto(a) || u[0];
+    setMesa([first]);
+    if (u.includes(first)) {
+      setMano(u.filter((f) => f !== first));
+      setAI(a);
+      setTurn("ia");
+      setMsg("IA juega…");
     } else {
-      setMano(jugador);
-      setIA(maquina.filter(f => f !== primera));
-      setTurno("user");
-      setMsg("Tu turno");
+      setMano(u);
+      setAI(a.filter((f) => f !== first));
+      setTurn("user");
+      setMsg("Arrastra una ficha");
     }
-    setFin("");
+    setEnd("");
+  };
+  useEffect(nuevaRonda, []);
+
+  /* extremos y validación */
+  const ends = () => (mesa.length ? { L: mesa[0][0], R: mesa.at(-1)[1] } : { L: null, R: null });
+  const can = (t) => {
+    const { L, R } = ends();
+    return t.includes(L) || t.includes(R);
+  };
+  const place = (tile, side) => {
+    const rev = ([a, b]) => [b, a];
+    setMesa((m) => {
+      if (!m.length) return [tile];
+      if (side === "left") {
+        const L = m[0][0];
+        const ok = tile[1] === L ? tile : rev(tile);
+        return [ok, ...m];
+      } else {
+        const R = m.at(-1)[1];
+        const ok = tile[0] === R ? tile : rev(tile);
+        return [...m, ok];
+      }
+    });
   };
 
-  useEffect(nuevoJuego, []);
-
-  const extremos = () => {
-    if (!mesa.length) return { L: null, R: null };
-    return { L: mesa[0][0], R: mesa.at(-1)[1] };
-  };
-
-  const puedePoner = (f) => {
-    const { L, R } = extremos();
-    return f.includes(L) || f.includes(R);
-  };
-
-  const ponerFicha = (ficha, quien) => {
-    const { L, R } = extremos();
-    const invertir = ([a, b]) => [b, a];
-    const ladoIzq = ficha.includes(L);
-    const fichaOK = ladoIzq
-      ? ficha[1] === L ? ficha : invertir(ficha)
-      : ficha[0] === R ? ficha : invertir(ficha);
-
-    setMesa(m => (ladoIzq ? [fichaOK, ...m] : [...m, fichaOK]));
-    if (quien === "user") setMano(h => h.filter(f => f !== ficha));
-    else setIA(h => h.filter(f => f !== ficha));
-  };
-
-  const jugarIA = () => {
-    const { L, R } = extremos();
-    const jugada = ia.find(f => f.includes(L) || f.includes(R));
-    if (jugada) {
+  /* IA simple */
+  useEffect(() => {
+    if (turn !== "ia" || end) return;
+    const { L, R } = ends();
+    const move = ai.find((f) => f.includes(L) || f.includes(R));
+    if (move) {
       setTimeout(() => {
-        ponerFicha(jugada, "ia");
-        setTurno("user");
-        setMsg("Tu turno");
+        place(move, move.includes(L) ? "left" : "right");
+        setAI((h) => h.filter((x) => x !== move));
+        setTurn("user");
+        setMsg("Arrastra una ficha");
       }, 600);
     } else {
       setTimeout(() => {
-        setTurno("user");
+        setTurn("user");
         setMsg("IA pasa • Tu turno");
       }, 500);
     }
-  };
+  }, [turn]);
 
-  const clickFicha = (f) => {
-    if (turno !== "user" || !puedePoner(f)) return;
-    ponerFicha(f, "user");
-    setTurno("ia");
-    setMsg("IA juega...");
-  };
-
-  useEffect(() => {
-    if (turno === "ia" && !fin) jugarIA();
-  }, [turno]);
-
-  useEffect(() => {
-    if (!fin && mano.length === 0) {
-      const puntosIA = ia.flat().reduce((a, b) => a + b, 0);
-      const nuevoPuntaje = ptsUser + puntosIA;
-      setPtsUser(nuevoPuntaje);
-      if (nuevoPuntaje >= 100) {
-        setFin("🎉 ¡Ganaste la partida!");
-        setMsg("🎉 ¡Ganaste la partida!");
-      } else {
-        setFin("🎉 ¡Ganaste la ronda!");
-        setMsg("🎉 ¡Ganaste la ronda!");
-      }
-    } else if (!fin && ia.length === 0) {
-      const puntosJugador = mano.flat().reduce((a, b) => a + b, 0);
-      const nuevoPuntaje = ptsIA + puntosJugador;
-      setPtsIA(nuevoPuntaje);
-      if (nuevoPuntaje >= 100) {
-        setFin("La IA ganó la partida 😓");
-        setMsg("La IA ganó la partida 😓");
-      } else {
-        setFin("La IA ganó la ronda 😓");
-        setMsg("La IA ganó la ronda 😓");
-      }
-    }
-
+  /* drag handlers */
+  const onDragStart = (i) => (e) => e.dataTransfer.setData("idx", i);
+  const onDrop = (side) => (e) => {
+    e.preventDefault();
+    if (turn !== "user") return;
+    const idx = Number(e.dataTransfer.getData("idx"));
+    const tile = mano[idx];
+    if (!tile || !can(tile)) return;
     if (
-      turno === "user" &&
-      mano.every(f => !puedePoner(f)) &&
-      ia.every(f => !puedePoner(f))
-    ) {
-      const puntosJugador = mano.flat().reduce((a, b) => a + b, 0);
-      const puntosIA = ia.flat().reduce((a, b) => a + b, 0);
-      const ganador = puntosJugador < puntosIA ? "user" : "ia";
-      const suma = (ganador === "user" ? puntosIA : puntosJugador);
-      if (ganador === "user") {
-        const nuevoPuntaje = ptsUser + suma;
-        setPtsUser(nuevoPuntaje);
-        if (nuevoPuntaje >= 100) {
-          setFin("🎉 ¡Ganaste la partida!");
-        } else {
-          setFin("🎉 ¡Ganaste la ronda por bloqueo!");
-        }
+      side === "left" && !tile.includes(ends().L) ||
+      side === "right" && !tile.includes(ends().R)
+    ) return; // invalid
+    place(tile, side);
+    setMano((h) => h.filter((_, j) => j !== idx));
+    setTurn("ia");
+    setMsg("IA juega…");
+  };
+  const prevent = (e) => e.preventDefault();
+
+  /* fin ronda simple (vacío o bloqueo) */
+  useEffect(() => {
+    if (end) return;
+    if (!mano.length || !ai.length) {
+      const winner = !mano.length ? "user" : "ia";
+      const ptsSum = suma(winner === "user" ? ai : mano);
+      const nuevo = { ...pts, [winner]: pts[winner] + ptsSum };
+      setPts(nuevo);
+      if (nuevo[winner] >= 100) {
+        setEnd(`${winner === "user" ? "🎉 Ganaste" : "IA gana"} la partida`);
       } else {
-        const nuevoPuntaje = ptsIA + suma;
-        setPtsIA(nuevoPuntaje);
-        if (nuevoPuntaje >= 100) {
-          setFin("La IA ganó la partida 😓");
-        } else {
-          setFin("La IA ganó la ronda por bloqueo 😓");
-        }
+        setEnd(`${winner === "user" ? "Ganaste" : "Perdiste"} la ronda (+${ptsSum})`);
       }
     }
-  }, [mano, ia]);
+  }, [mano, ai]);
 
+  /* render */
   return (
-    <main style={styles.bg}>
-      <h2 style={styles.turno}>{msg}</h2>
+    <main style={st.bg}>
+      <h2 style={st.msg}>{msg}</h2>
+      <div style={st.score}>Tú&nbsp;{pts.user} • IA&nbsp;{pts.ai}</div>
 
-      <div style={styles.puntajes}>
-        <span>👤 Tú: {ptsUser} pts ({mano.length} fichas)</span>
-        <span>🤖 IA: {ptsIA} pts ({ia.length} fichas)</span>
-      </div>
+      {/* tablero madera 3-D */}
+      <section style={st.board}>
+        {/* zona drop izquierda */}
+        <div
+          style={st.drop}
+          onDragOver={prevent}
+          onDrop={onDrop("left")}
+        />
+        {/* fichas mesa */}
+        <div style={st.row}>
+          {mesa.map((f, i) => (
+            <Tile key={i} v={f} rot={i % 2 ? 90 : 0} />
+          ))}
+        </div>
+        {/* zona drop derecha */}
+        <div
+          style={st.drop}
+          onDragOver={prevent}
+          onDrop={onDrop("right")}
+        />
+      </section>
 
-      <div style={styles.mesa}>
-        {mesa.map((f, i) => (
-          <Ficha key={i} v={f} activa={false} />
-        ))}
-      </div>
-
-      <div style={styles.mano}>
+      {/* mano user (draggable) */}
+      <div style={st.hand}>
         {mano.map((f, i) => (
-          <Ficha key={i} v={f} activa={puedePoner(f)} onClick={() => clickFicha(f)} />
+          <Tile
+            key={i}
+            v={f}
+            draggable
+            onDragStart={onDragStart(i)}
+            style={{ opacity: can(f) ? 1 : 0.3 }}
+          />
         ))}
       </div>
 
-      <div style={styles.iaRow}>
-        {ia.map((f, i) => (
-          <Ficha key={i} v={f} oculta />
+      {/* mano IA oculta */}
+      <div style={st.aiRow}>
+        {ai.map((_, i) => (
+          <Tile key={i} v={[0, 0]} oculta />
         ))}
       </div>
 
-      <div style={{ marginTop: 20 }}>
-        {fin ? (
-          <button onClick={nuevoJuego} style={styles.boton}>
-            🔄 Jugar otra ronda
-          </button>
-        ) : (
-          <Link to="/dashboard" style={styles.volver}>
-            ← Volver al Dashboard
-          </Link>
-        )}
-      </div>
+      {end && (
+        <button onClick={nuevaRonda} style={st.btn}>
+          🔄 Siguiente ronda
+        </button>
+      )}
+      {!end && (
+        <Link to="/dashboard" style={st.link}>
+          ← Dashboard
+        </Link>
+      )}
     </main>
   );
 }
 
-/* Estilos */
-const styles = {
+/* estilos */
+const st = {
   bg: {
     minHeight: "100vh",
-    background: "#073b4c",
-    padding: 16,
+    background: "#0a4228",
     color: "#fff",
+    padding: 12,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
   },
-  turno: {
-    fontSize: 18,
-    fontWeight: 600,
-    marginBottom: 6,
-  },
-  puntajes: {
-    fontSize: 14,
-    marginBottom: 10,
+  msg: { fontWeight: 700, marginBottom: 4 },
+  score: { marginBottom: 8 },
+  board: {
+    background: "url('https://i.imgur.com/3ZQ3ZQp.png') center / cover",
+    border: "8px solid #c79a3b",
+    borderRadius: 20,
+    boxShadow: "0 8px 18px #0007 inset",
     display: "flex",
-    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 6,
     width: "100%",
-    maxWidth: 400,
+    maxWidth: 420,
+    minHeight: 120,
+    marginBottom: 12,
   },
-  mesa: {
-    background: "#2a9d8f",
-    border: "6px solid #264653",
-    padding: 10,
-    borderRadius: 12,
+  row: {
     display: "flex",
     flexWrap: "wrap",
     justifyContent: "center",
-    minHeight: 150,
-    maxWidth: "100%",
+    gap: 2,
+    flex: 1,
   },
-  mano: {
-    marginTop: 14,
+  drop: {
+    width: 34,
+    height: 90,
+    border: "2px dashed #fff4",
+    borderRadius: 8,
+  },
+  hand: {
     display: "flex",
     flexWrap: "wrap",
     justifyContent: "center",
     gap: 4,
+    marginBottom: 10,
   },
-  iaRow: {
-    marginTop: 10,
+  aiRow: {
     display: "flex",
     justifyContent: "center",
     flexWrap: "wrap",
     gap: 4,
+    opacity: 0.8,
+    marginBottom: 10,
   },
-  ficha: {
+  tile: {
     width: 48,
     height: 80,
+    background: "#fff",
     border: "2px solid #000",
     borderRadius: 6,
-    margin: 3,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
     padding: 3,
-    background: "#fff",
-    transform: "perspective(600px) rotateX(5deg)",
+    transform: "perspective(600px) rotateX(6deg)",
   },
-  divisor: {
+  div: {
     height: 1,
     background: "#000",
-    margin: "1px auto",
     width: "90%",
+    margin: "1px auto",
   },
-  cara: {
-    flex: 1,
-    position: "relative",
-  },
-  punto: {
+  face: { flex: 1, position: "relative" },
+  dot: {
     position: "absolute",
     width: 8,
     height: 8,
     background: "#000",
     borderRadius: "50%",
-    transform: "translate(-50%, -50%)",
+    transform: "translate(-50%,-50%)",
   },
-  oculta: {
-    width: "100%",
-    height: "100%",
-    background: "repeating-linear-gradient(45deg, #aaa, #aaa 4px, #ddd 4px, #ddd 8px)",
-    borderRadius: 6,
-  },
-  boton: {
-    padding: "10px 22px",
+  btn: {
     background: "#2a9d8f",
     border: "none",
-    borderRadius: 20,
-    fontWeight: 700,
+    padding: "8px 20px",
+    borderRadius: 18,
     color: "#fff",
+    fontWeight: 700,
+    marginTop: 10,
   },
-  volver: {
+  link: {
     color: "#facc15",
     textDecoration: "underline",
-    fontWeight: 600,
+    marginTop: 10,
   },
 };
