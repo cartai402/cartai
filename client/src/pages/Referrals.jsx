@@ -1,16 +1,9 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "../firebase";
 import { ref, onValue, update, get } from "firebase/database";
-import { Link } from "react-router-dom";
-
-/* ───────── helpers ───────── */
-const generarCodigo = (uid) =>
-  uid.slice(0, 3).toUpperCase() + Math.floor(100 + Math.random() * 900);
 
 export default function Referrals() {
   const uid = auth.currentUser?.uid;
-
-  /* state */
   const [miCodigo, setMiCodigo] = useState("");
   const [referidos, setReferidos] = useState([]);
   const [copiado, setCopiado] = useState(false);
@@ -22,201 +15,242 @@ export default function Referrals() {
   const [promoInput, setPromoInput] = useState("");
   const [promoMsg, setPromoMsg] = useState("");
 
-  /* ─── carga inicial ─── */
+  const urlRef = `${window.location.origin}/register?ref=${miCodigo}`;
+
   useEffect(() => {
     if (!uid) return;
+    const thisUserRef = ref(db, `usuarios/${uid}`);
 
-    const usrRef = ref(db, `usuarios/${uid}`);
-
-    // mi código + saber si ya tengo referente
-    onValue(usrRef, snap => {
-      const d = snap.val() || {};
-      if (!d.codigoReferido) {
+    // Obtener o generar código de referido
+    onValue(thisUserRef, snap => {
+      const data = snap.val() || {};
+      if (!data.codigoReferido) {
         const nuevo = generarCodigo(uid);
-        update(usrRef, { codigoReferido: nuevo });
+        update(thisUserRef, { codigoReferido: nuevo });
         setMiCodigo(nuevo);
-      } else setMiCodigo(d.codigoReferido);
-      if (d.referido) setYaTieneReferido(true);
+      } else {
+        setMiCodigo(data.codigoReferido);
+      }
+      if (data.referido) setYaTieneReferido(true);
     });
 
-    // mis referidos
-    onValue(ref(db, "usuarios"), snap => {
-      const all = snap.val() || {};
-      const list = Object.values(all).filter(u => u.referido === miCodigo);
-      setReferidos(list.reverse());
+    // Cargar referidos
+    const allRef = ref(db, "usuarios");
+    onValue(allRef, snap => {
+      const users = snap.val() || {};
+      const lista = Object.values(users).filter(u => u.referido === miCodigo);
+      setReferidos(lista.reverse());
     });
   }, [uid, miCodigo]);
 
-  /* ─── UI helpers ─── */
+  const generarCodigo = (uid) =>
+    uid.slice(0, 3).toUpperCase() + Math.floor(100 + Math.random() * 900);
+
   const copiarLink = () => {
-    navigator.clipboard.writeText(
-      `${window.location.origin}/register?ref=${miCodigo}`
-    );
+    navigator.clipboard.writeText(urlRef);
     setCopiado(true);
-    setTimeout(() => setCopiado(false), 1800);
+    setTimeout(() => setCopiado(false), 2000);
   };
 
-  /* ─── canje invitador ─── */
+  const compartir = (plataforma) => {
+    const mensaje = encodeURIComponent(
+      `Regístrate con este enlace y gana un bono: ${urlRef}`
+    );
+
+    const urls = {
+      whatsapp: `https://wa.me/?text=${mensaje}`,
+      telegram: `https://t.me/share/url?url=${urlRef}&text=${mensaje}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${urlRef}`,
+      twitter: `https://twitter.com/intent/tweet?text=${mensaje}`,
+    };
+
+    window.open(urls[plataforma], "_blank");
+  };
+
   const canjearReferido = async () => {
-    if (yaTieneReferido) return setRedeemMsg("❌ Ya tienes un invitador.");
+    if (yaTieneReferido) {
+      setRedeemMsg("❌ Ya tienes un código asociado.");
+      return;
+    }
+
     const code = redeemInput.trim().toUpperCase();
-    if (code.length < 4 || code === miCodigo)
-      return setRedeemMsg("❌ Código inválido.");
+    if (code.length < 4 || code === miCodigo) {
+      setRedeemMsg("❌ Código inválido.");
+      return;
+    }
 
     const allSnap = await get(ref(db, "usuarios"));
-    const users = allSnap.val() || {};
-    const invitadorUID = Object.keys(users).find(
-      k => users[k].codigoReferido === code
+    const allUsers = allSnap.val() || {};
+    const invitadorUID = Object.keys(allUsers).find(
+      k => allUsers[k].codigoReferido === code
     );
-    if (!invitadorUID) return setRedeemMsg("❌ Código no existe.");
+    if (!invitadorUID) {
+      setRedeemMsg("❌ Código no encontrado.");
+      return;
+    }
 
-    // bonos
+    // Dar bono
     await update(ref(db, `usuarios/${uid}`), {
       referido: code,
-      saldoBonos: (users[uid]?.saldoBonos || 0) + 2000,
+      saldoBonos: (allUsers[uid]?.saldoBonos || 0) + 2000,
     });
-    if (users[invitadorUID]?.paqueteActivo)
+
+    if (allUsers[invitadorUID]?.paqueteActivo) {
       await update(ref(db, `usuarios/${invitadorUID}`), {
-        saldoBonos: (users[invitadorUID].saldoBonos || 0) + 6000,
+        saldoBonos: (allUsers[invitadorUID].saldoBonos || 0) + 6000,
       });
+    }
 
     setYaTieneReferido(true);
-    setRedeemMsg("✅ ¡Código aplicado y bono acreditado!");
+    setRedeemMsg("✅ Código redimido y bono acreditado.");
   };
 
-  /* ─── canje promo ─── */
   const canjearPromo = async () => {
     const code = promoInput.trim().toUpperCase();
-    if (code.length < 4) return setPromoMsg("❌ Código inválido.");
+    if (code.length < 4) {
+      setPromoMsg("❌ Código inválido.");
+      return;
+    }
 
-    const snap = await get(ref(db, `promoCodes/${code}`));
-    if (!snap.exists()) return setPromoMsg("❌ No existe.");
-    const data = snap.val();
-    if (data.usado) return setPromoMsg("❌ Ya utilizado.");
+    const codeSnap = await get(ref(db, `codigos/${code}`));
+    if (!codeSnap.exists()) {
+      setPromoMsg("❌ Código no existe.");
+      return;
+    }
 
-    const usrSnap = await get(ref(db, `usuarios/${uid}`));
-    const saldo = usrSnap.val()?.saldoBonos || 0;
-    await update(ref(db, `usuarios/${uid}`), { saldoBonos: saldo + data.valor });
-    await update(ref(db, `promoCodes/${code}`), { usado: true, uid });
+    const datos = codeSnap.val();
+    if (datos.usado) {
+      setPromoMsg("❌ Código ya fue usado.");
+      return;
+    }
 
-    setPromoMsg(`✅ Bono $${data.valor.toLocaleString()} acreditado.`);
+    const userSnap = await get(ref(db, `usuarios/${uid}`));
+    const userData = userSnap.val();
+    const bonoActual = userData?.saldoBonos || 0;
+
+    await update(ref(db, `usuarios/${uid}`), {
+      saldoBonos: bonoActual + (datos.valor || 0),
+    });
+
+    await update(ref(db, `codigos/${code}`), {
+      usado: true,
+      uid,
+      fecha: Date.now(),
+    });
+
+    setPromoMsg(`✅ Bono de $${datos.valor.toLocaleString()} acreditado.`);
     setPromoInput("");
   };
 
-  /* ─── RENDER ─── */
   return (
-    <main style={st.bg}>
-      <div style={st.wrapper}>
-
-        {/* título */}
-        <header style={{ textAlign: "center" }}>
-          <h1 style={st.h1}>Programa de Referidos 📨</h1>
-          <p style={st.sub}>Comparte tu enlace y gana comisiones · Canjea códigos promocionales</p>
+    <main className="min-h-screen bg-gradient-to-br from-[#0f172a] to-[#1e293b] text-white p-6">
+      <div className="max-w-3xl mx-auto space-y-10">
+        {/* Encabezado */}
+        <header className="text-center space-y-2">
+          <h1 className="text-3xl font-bold">📨 Programa de Referidos</h1>
+          <p className="text-gray-300">
+            Comparte tu código, gana comisiones y canjea códigos promocionales.
+          </p>
         </header>
 
-        {/* mi código */}
-        <Card>
-          <p>Tu código:</p>
-          <h2 style={st.code}>{miCodigo || "..."}</h2>
-          <button onClick={copiarLink} style={{ ...st.btn3d, ...st.btnGold }}>
-            {copiado ? "✅ Copiado" : "📎 Copiar enlace"}
-          </button>
-        </Card>
-
-        {/* canjear invitador */}
-        {!yaTieneReferido && (
-          <Card>
-            <h3 style={st.cardTitle}>Redimir código de invitador</h3>
-            <input
-              style={st.input}
-              value={redeemInput}
-              onChange={e => setRedeemInput(e.target.value.toUpperCase())}
-              placeholder="ABC123"
-            />
-            {redeemMsg && <p style={st.msg}>{redeemMsg}</p>}
-            <button onClick={canjearReferido} style={{ ...st.btn3d, ...st.btnCyan, width:"100%" }}>
-              Redimir
+        {/* Código propio */}
+        <section className="bg-white/10 p-6 rounded-xl border border-white/20 text-center space-y-4 shadow-xl">
+          <p>Tu código de referido:</p>
+          <h2 className="text-3xl font-bold text-yellow-300 tracking-widest">{miCodigo}</h2>
+          <div className="flex flex-wrap justify-center gap-4">
+            <button
+              onClick={copiarLink}
+              className="bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-2 px-4 rounded-md"
+            >
+              {copiado ? "✅ Copiado" : "📎 Copiar link"}
             </button>
-          </Card>
+            <button onClick={() => compartir("whatsapp")} className="btnSocial">WhatsApp</button>
+            <button onClick={() => compartir("telegram")} className="btnSocial">Telegram</button>
+            <button onClick={() => compartir("facebook")} className="btnSocial">Facebook</button>
+            <button onClick={() => compartir("twitter")} className="btnSocial">X (Twitter)</button>
+          </div>
+        </section>
+
+        {/* Redimir referido */}
+        {!yaTieneReferido && (
+          <section className="bg-white/10 p-6 rounded-xl border border-white/20 space-y-4 shadow-lg">
+            <h3 className="text-xl font-semibold">Redimir código de invitación</h3>
+            <input
+              value={redeemInput}
+              onChange={(e) => setRedeemInput(e.target.value.toUpperCase())}
+              placeholder="Código de otro usuario"
+              className="w-full bg-white/20 p-3 rounded-lg uppercase"
+            />
+            {redeemMsg && <p className="text-sm">{redeemMsg}</p>}
+            <button
+              onClick={canjearReferido}
+              className="w-full bg-green-500 hover:bg-green-600 font-bold py-2 rounded-lg"
+            >
+              Canjear código
+            </button>
+          </section>
         )}
 
-        {/* canjear promo */}
-        <Card>
-          <h3 style={st.cardTitle}>Canjear código promocional</h3>
+        {/* Redimir código promocional */}
+        <section className="bg-white/10 p-6 rounded-xl border border-white/20 space-y-4 shadow-lg">
+          <h3 className="text-xl font-semibold">Canjear código promocional</h3>
           <input
-            style={st.input}
             value={promoInput}
-            onChange={e => setPromoInput(e.target.value.toUpperCase())}
-            placeholder="PROMO2025"
+            onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+            placeholder="Código promocional"
+            className="w-full bg-white/20 p-3 rounded-lg uppercase"
           />
-          {promoMsg && <p style={st.msg}>{promoMsg}</p>}
-          <button onClick={canjearPromo} style={{ ...st.btn3d, ...st.btnPurple, width:"100%" }}>
+          {promoMsg && <p className="text-sm">{promoMsg}</p>}
+          <button
+            onClick={canjearPromo}
+            className="w-full bg-purple-500 hover:bg-purple-600 font-bold py-2 rounded-lg"
+          >
             Canjear
           </button>
-        </Card>
+        </section>
 
-        {/* lista referidos */}
+        {/* Lista de referidos */}
         <section>
-          <h3 style={st.cardTitle}>Tus referidos</h3>
+          <h3 className="text-xl font-semibold mb-3">👥 Tus referidos</h3>
           {referidos.length === 0 ? (
-            <p style={{ opacity:.7 }}>Aún no tienes referidos.</p>
+            <p className="text-gray-400">Aún no tienes referidos.</p>
           ) : (
-            <div style={st.list}>
-              {referidos.map((r,i)=>(
-                <div key={i} style={st.listItem}>
-                  <span>{r.nombre}</span>
-                  <span style={{ fontSize:13 }}>
+            <ul className="grid gap-3">
+              {referidos.map((r, i) => (
+                <li
+                  key={i}
+                  className="bg-white/10 border border-white/10 p-4 rounded-lg flex justify-between items-center"
+                >
+                  <span className="font-bold">{r.nombre}</span>
+                  <span className="text-sm text-gray-300">
                     {r.paqueteActivo
-                      ? "🟢 Activo"
+                      ? "🟢 Paquete activo"
                       : r.iaActiva
                       ? "🟡 Solo IA"
                       : "🔴 Inactivo"}
                   </span>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </section>
-
-        {/* volver */}
-        <Link to="/dashboard" style={st.back}>← Volver</Link>
       </div>
+
+      {/* Estilos adicionales para botones sociales */}
+      <style>{`
+        .btnSocial {
+          background: rgba(255,255,255,0.1);
+          border: 1px solid rgba(255,255,255,0.3);
+          padding: 8px 14px;
+          border-radius: 12px;
+          font-weight: 600;
+          color: #fff;
+          transition: background 0.2s;
+        }
+        .btnSocial:hover {
+          background: rgba(255,255,255,0.2);
+        }
+      `}</style>
     </main>
   );
 }
-
-/* ─── componentes auxiliares ─── */
-const Card = ({ children }) => (
-  <section style={st.card}>{children}</section>
-);
-
-/* ─── estilos inline ─── */
-const st = {
-  /* fondo animado tipo Home */
-  bg:{minHeight:"100vh",padding:"40px 20px",
-      background:"linear-gradient(135deg,#0f172a,#1e293b 40%,#065f46)",
-      backgroundSize:"600% 600%",animation:"floatBg 30s linear infinite",
-      color:"#fff",display:"flex",justifyContent:"center"},
-  wrapper:{width:"100%",maxWidth:800,display:"flex",flexDirection:"column",gap:40},
-  h1:{fontSize:"2rem",fontWeight:800,margin:0},
-  sub:{opacity:.85,maxWidth:520,margin:"8px auto 0"},
-  card:{backdropFilter:"blur(10px)",background:"rgba(255,255,255,.06)",
-        borderRadius:20,padding:30,boxShadow:"0 8px 18px #0007",width:"100%"},
-  cardTitle:{fontSize:20,fontWeight:700,marginBottom:16,textAlign:"center"},
-  code:{fontSize:"1.8rem",fontWeight:800,color:"#facc15",margin:"8px 0 20px"},
-  input:{width:"100%",padding:"12px 16px",borderRadius:14,border:"none",
-         background:"rgba(255,255,255,.12)",color:"#fff",marginBottom:12,
-         textTransform:"uppercase",fontWeight:600,letterSpacing:1},
-  msg:{fontSize:14,margin:"4px 0 10px"},
-  list:{display:"flex",flexDirection:"column",gap:10},
-  listItem:{display:"flex",justifyContent:"space-between",
-            background:"rgba(0,0,0,.2)",padding:"12px 16px",borderRadius:12},
-  back:{marginTop:10,textDecoration:"underline",color:"#facc15",textAlign:"center"},
-
-  /* botones 3-D */
-  btn3d:{padding:"12px 24px",borderRadius:16,fontWeight:700,boxShadow:"4px 4px 14px #000a",
-         transition:"transform .2s,box-shadow .2s"},
-  btnGold:{background:"linear-gradient(90deg,#facc15,#eab308)",color:"#000"},
-  btnCyan:{background:"linear-gradient(90deg,#38bdf8,#0ea5e9)",color:"#fff"},
-  btnPurple:{background:"linear-gradient(90deg,#a855f7,#7e22ce)",color:"#fff"}
-};
