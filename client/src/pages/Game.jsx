@@ -1,11 +1,12 @@
 /************************************************************
- *  Dominó CartAI v3                                         *
- *  • Modo práctica sin apuesta (?practica=true)             *
- *  • Modo online 1-v-1 o vs IA con apuesta                  *
- *  • Comisión 10 %                                          *
+ *  Dominó CartAI v3 – single-file improved                 *
+ *  • Bienvenida pseudo-3D, mobile friendly                 *
+ *  • Modo práctica (IA)                                    *
+ *  • Modo online (vs jugador / IA)                         *
+ *  • Solo Tailwind + clsx (sin nuevas dependencias)        *
  ***********************************************************/
 import { useEffect, useState, useRef } from "react";
-import { useSearchParams, Link, useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import clsx from "clsx";
 import {
   ref,
@@ -29,61 +30,6 @@ const shuffle = (a) => a.sort(() => Math.random() - 0.5);
 const highestDouble = (h) =>
   h.filter((x) => x[0] === x[1]).sort((a, b) => b[0] - a[0])[0];
 const sumHand = (h) => h.reduce((t, [a, b]) => t + a + b, 0);
-
-/* ╔═══════════════════════════════╗
-   ║  COMPONENTE FICHA (3-D)       ║
-   ╚═══════════════════════════════╝ */
-const Tile = ({ v, onClick, highlight, small }) => (
-  <div
-    className={clsx(
-      "select-none cursor-pointer drop-shadow-lg",
-      small ? "w-8 sm:w-10" : "w-12 sm:w-16",
-      "transition-transform duration-200",
-      highlight && "scale-105"
-    )}
-    style={{ perspective: 500 }}
-    onClick={onClick}
-  >
-    <svg
-      viewBox="0 0 80 140"
-      className={clsx(
-        "w-full h-full",
-        highlight && "ring-4 ring-yellow-400 rounded-md"
-      )}
-      style={{
-        transform: "rotateX(20deg) rotateY(-15deg)",
-        transformStyle: "preserve-3d",
-      }}
-    >
-      <rect width="80" height="140" rx="10" fill="#fff" />
-      <line x1="5" y1="70" x2="75" y2="70" stroke="#888" strokeDasharray="4 4" />
-      <text
-        x="40"
-        y="50"
-        textAnchor="middle"
-        fontSize="42"
-        fontFamily="monospace"
-        fill="#222"
-      >
-        {v[0]}
-      </text>
-      <text
-        x="40"
-        y="120"
-        textAnchor="middle"
-        fontSize="42"
-        fontFamily="monospace"
-        fill="#222"
-      >
-        {v[1]}
-      </text>
-    </svg>
-  </div>
-);
-
-/* ╔═══════════════╗
-   ║  IA BÁSICA    ║
-   ╚═══════════════╝ */
 const pickAI = (hand, left, right) => {
   let best = null,
     bestScore = Infinity;
@@ -101,6 +47,87 @@ const pickAI = (hand, left, right) => {
   return best;
 };
 
+/* ╔═══════════════════════════════╗
+   ║  COMPONENTE FICHA (pseudo-3D) ║
+   ╚═══════════════════════════════╝ */
+const Tile = ({ v, onClick, highlight, small }) => (
+  <div
+    className={clsx(
+      small ? "w-8 sm:w-10" : "w-12 sm:w-16",
+      "tile-hover",
+      highlight && "scale-110"
+    )}
+    style={{ perspective: 500 }}
+    onClick={onClick}
+  >
+    <svg
+      viewBox="0 0 80 140"
+      className={clsx(
+        "w-full h-full tile-3d",
+        highlight && "tile-ring"
+      )}
+    >
+      <rect width="80" height="140" rx="10" fill="#fff" />
+      <line x1="5" y1="70" x2="75" y2="70" stroke="#888" strokeDasharray="4 4" />
+      <text x="40" y="50" textAnchor="middle" fontSize="42" fontFamily="monospace" fill="#222">
+        {v[0]}
+      </text>
+      <text x="40" y="120" textAnchor="middle" fontSize="42" fontFamily="monospace" fill="#222">
+        {v[1]}
+      </text>
+    </svg>
+  </div>
+);
+
+/* ╔══════════════╗
+   ║  TABLERO UI  ║
+   ╚══════════════╝ */
+function Board({
+  mesa,
+  mano,
+  msg,
+  turno,
+  puedeJugar,
+  onPlay,
+  hideOpponent,
+  opponentCount = 0,
+}) {
+  return (
+    <main className="board-bg min-h-screen flex flex-col text-white">
+      <header className="header-bar">
+        {msg || (turno === "user" ? "Tu turno" : "Turno rival")}
+      </header>
+
+      <section className="flex-1 flex flex-wrap items-center justify-center gap-1 p-2">
+        {mesa.map((t, i) => <Tile key={i} v={t} />)}
+        {mesa.length === 0 && <p className="text-gray-400">Empieza…</p>}
+      </section>
+
+      <footer className="bg-black/60 p-2 flex flex-wrap justify-center gap-1">
+        {mano.map((t, i) => (
+          <Tile
+            key={i}
+            v={t}
+            highlight={puedeJugar(t)}
+            onClick={() => onPlay(t)}
+            small
+          />
+        ))}
+      </footer>
+
+      {hideOpponent && (
+        <div className="turn-banner">Fichas rival: {opponentCount}</div>
+      )}
+
+      <div className="text-center text-sm bg-black/60 py-1">
+        <Link to="/dashboard" className="text-yellow-300 underline">
+          ← Volver al Dashboard
+        </Link>
+      </div>
+    </main>
+  );
+}
+
 /* ╔══════════════════════╗
    ║  MODO PRÁCTICA       ║
    ╚══════════════════════╝ */
@@ -113,49 +140,54 @@ function PracticeDomino() {
 
   useEffect(() => {
     const pool = shuffle(fullSet());
-    const uHand = pool.slice(0, 7);
-    const iaH = pool.slice(7, 14);
-    setMano(uHand);
-    setAI(iaH);
-    const start = highestDouble(uHand) || highestDouble(iaH) || uHand[0];
-    setMesa([start]);
-    if (iaH.includes(start)) {
-      setAI(iaH.filter((t) => t !== start));
+    const user = pool.slice(0, 7);
+    const ia = pool.slice(7, 14);
+    setMano(user);
+    setAI(ia);
+
+    const first = highestDouble(user) || highestDouble(ia) || user[0];
+    setMesa([first]);
+
+    if (ia.includes(first)) {
+      setAI(ia.filter((t) => t !== first));
     } else {
-      setMano(uHand.filter((t) => t !== start));
+      setMano(user.filter((t) => t !== first));
       setTurno("ai");
       setMsg("IA juega primero");
     }
   }, []);
 
-  const canPlay = (tile) => {
+  const canPlay = (t) => {
     if (!mesa.length) return true;
     const [l, r] = [mesa[0][0], mesa.at(-1)[1]];
-    return tile[0] === l || tile[1] === l || tile[0] === r || tile[1] === r;
+    return t[0] === l || t[1] === l || t[0] === r || t[1] === r;
   };
 
   const playUser = (tile, side = "right") => {
     if (turno !== "user" || !canPlay(tile)) return;
     setMesa((m) =>
-      side === "left" ? [tile, ...m] : [...m, tile[0] === m.at(-1)[1] ? tile : [tile[1], tile[0]]]
+      side === "left"
+        ? [tile, ...m]
+        : [...m, tile[0] === m.at(-1)[1] ? tile : [tile[1], tile[0]]]
     );
     setMano((h) => h.filter((x) => x !== tile));
     setTurno("ai");
     setMsg("Turno IA");
   };
 
+  /* IA */
   useEffect(() => {
     if (turno !== "ai") return;
     const [l, r] = [mesa[0][0], mesa.at(-1)[1]];
-    const play = pickAI(aiHand, l, r);
-    if (play) {
+    const best = pickAI(aiHand, l, r);
+    if (best) {
       setTimeout(() => {
         setMesa((m) =>
-          play.side === "left"
-            ? [play.tile, ...m]
-            : [...m, play.tile[0] === r ? play.tile : [play.tile[1], play.tile[0]]]
+          best.side === "left"
+            ? [best.tile, ...m]
+            : [...m, best.tile[0] === r ? best.tile : [best.tile[1], best.tile[0]]]
         );
-        setAI(aiHand.filter((x) => x !== play.tile));
+        setAI(aiHand.filter((x) => x !== best.tile));
         setTurno("user");
         setMsg("Tu turno");
       }, 600);
@@ -179,9 +211,9 @@ function PracticeDomino() {
   );
 }
 
-/* ╔═══════════════════════════════╗
-   ║  MODO ONLINE (lógica íntegra) ║
-   ╚═══════════════════════════════╝ */
+/* ╔══════════════════════╗
+   ║  MODO ONLINE (1-v-1) ║
+   ╚══════════════════════╝ */
 function OnlineDomino({ apuesta, vsIA }) {
   const navigate = useNavigate();
   const [mesa, setMesa] = useState([]);
@@ -193,7 +225,6 @@ function OnlineDomino({ apuesta, vsIA }) {
   const uid = auth.currentUser?.uid;
   const hostSide = useRef("");
 
-  /* emparejamiento */
   useEffect(() => {
     if (!uid) return navigate("/login");
     const lobby = ref(db, "partidas");
@@ -262,7 +293,6 @@ function OnlineDomino({ apuesta, vsIA }) {
     return () => unsub();
   }, []);
 
-  /* repartir */
   const deal = (p) => {
     const pool = shuffle(fullSet());
     const h1 = pool.slice(0, 7),
@@ -280,7 +310,6 @@ function OnlineDomino({ apuesta, vsIA }) {
     });
   };
 
-  /* IA en online */
   const playIA = (p) => {
     const iaHand = p[`hand_player2_IA`];
     const [l, r] = p.mesa.length ? [p.mesa[0][0], p.mesa.at(-1)[1]] : [null, null];
@@ -300,7 +329,6 @@ function OnlineDomino({ apuesta, vsIA }) {
     }
   };
 
-  /* helpers */
   const myTurn = () =>
     turno === hostSide.current ||
     (vsIA && hostSide.current === "host" && turno === "host");
@@ -317,11 +345,7 @@ function OnlineDomino({ apuesta, vsIA }) {
     update(salaRef.current, {
       mesa: newMesa,
       [`hand_${hostSide.current}_${uid}`]: newHand,
-      turno: vsIA
-        ? "IA"
-        : hostSide.current === "host"
-        ? "player2"
-        : "host",
+      turno: vsIA ? "IA" : hostSide.current === "host" ? "player2" : "host",
     });
     if (newHand.length === 0) finish(uid);
   };
@@ -349,41 +373,8 @@ function OnlineDomino({ apuesta, vsIA }) {
 }
 
 /* ╔══════════════════╗
-   ║  TABLERO / UI    ║
+   ║  ROOT COMPONENT  ║
    ╚══════════════════╝ */
-function Board({ mesa, mano, msg, turno, puedeJugar, onPlay, hideOpponent, opponentCount = 0 }) {
-  return (
-    <main className="min-h-screen flex flex-col text-white bg-gradient-to-br from-[#141e30] to-[#243b55]">
-      <header className="p-3 text-center bg-black/40 backdrop-blur">{msg || (turno === "user" ? "Tu turno" : "Turno rival")}</header>
-
-      {/* mesa */}
-      <section className="flex-1 flex flex-wrap items-center justify-center gap-1 p-2">
-        {mesa.map((t, i) => <Tile key={i} v={t} />)}
-        {mesa.length === 0 && <p className="text-gray-400">Empieza…</p>}
-      </section>
-
-      {/* mano */}
-      <footer className="bg-black/60 p-2 flex flex-wrap justify-center gap-1">
-        {mano.map((t, i) => (
-          <Tile key={i} v={t} highlight={puedeJugar(t)} onClick={() => onPlay(t)} small />
-        ))}
-      </footer>
-
-      {/* oponente */}
-      {hideOpponent && (
-        <div className="text-center text-xs py-1 bg-black/50">Fichas rival: {opponentCount}</div>
-      )}
-
-      <div className="text-center text-sm bg-black/60 py-1">
-        <Link to="/dashboard" className="text-yellow-300 underline">← Volver al Dashboard</Link>
-      </div>
-    </main>
-  );
-}
-
-/* ╔══════════════════════════╗
-   ║  PANTALLA DE BIENVENIDA  ║
-   ╚══════════════════════════╝ */
 export default function Game() {
   const [modo, setModo] = useState(null);
   const [search] = useSearchParams();
@@ -393,33 +384,23 @@ export default function Game() {
   if (modo === "vsIA") return <OnlineDomino apuesta={apuestaQuery} vsIA />;
   if (modo === "online") return <OnlineDomino apuesta={apuestaQuery} vsIA={false} />;
 
+  /* pantalla de inicio */
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[#0f2027] via-[#203a43] to-[#2c5364] text-white px-6">
-      <h1 className="text-4xl sm:text-6xl font-extrabold mb-4 drop-shadow-xl animate-pulse">🎲 Dominó CartAI</h1>
-      <p className="max-w-md text-center text-gray-300 mb-10 text-sm sm:text-base">
-        ¡Bienvenido! Elige un modo para empezar: practica sin riesgo, desafía a
-        nuestra IA o compite online con otro jugador. Las partidas con apuesta tienen
-        una comisión del 10 %.
+    <main className="welcome-bg min-h-screen flex flex-col items-center justify-center text-white px-6">
+      <h1 className="domino-title">🎲 Dominó CartAI</h1>
+      <p className="domino-subtitle">
+        Elige tu modo de juego: practica, reta a nuestra IA o compite en línea.
       </p>
 
       <div className="flex flex-col gap-4 w-full max-w-xs">
-        <button
-          onClick={() => setModo("practica")}
-          className="py-3 bg-yellow-500 hover:bg-yellow-600 rounded-lg font-semibold shadow-lg transition active:scale-95"
-        >
+        <button onClick={() => setModo("practica")} className="btn btn-yellow">
           🧠 Modo práctica
         </button>
-        <button
-          onClick={() => setModo("vsIA")}
-          className="py-3 bg-green-600 hover:bg-green-700 rounded-lg font-semibold shadow-lg transition active:scale-95"
-        >
-          🤖 Jugar contra IA
+        <button onClick={() => setModo("vsIA")} className="btn btn-green">
+          🤖 Contra IA
         </button>
-        <button
-          onClick={() => setModo("online")}
-          className="py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold shadow-lg transition active:scale-95"
-        >
-          🌐 Jugar online
+        <button onClick={() => setModo("online")} className="btn btn-blue">
+          🌐 Online 1-v-1
         </button>
         <Link to="/dashboard" className="mt-3 text-sm text-gray-200 underline text-center">
           ← Volver al Dashboard
