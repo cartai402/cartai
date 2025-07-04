@@ -14,22 +14,20 @@ export default function Admin() {
   const [nombres, setNom] = useState({});
   const [promoVal, setPromoVal] = useState("");
   const [promoDur, setPromoDur] = useState("");
+  const [ultimoCodigo, setUltimoCodigo] = useState("");
 
   const nav = useNavigate();
   const auth = getAuth();
   const usr = auth.currentUser;
 
-  /* ----------- acceso sólo admin ----------- */
   useEffect(() => {
     if (!usr || usr.email !== "admincartai@cartai.com") nav("/dashboard");
   }, [usr]);
 
-  /* ----------- cargar listados ----------- */
   useEffect(() => {
     const pagosRef = ref(db, "pagosPendientes");
-    const retirosRef = ref(db, "retirosPendientes"); // ✅ leer desde aquí
+    const retirosRef = ref(db, "retirosPendientes");
 
-    /* PAGOS */
     onValue(pagosRef, async (s) => {
       const d = s.val() || {};
       const lista = [];
@@ -43,7 +41,6 @@ export default function Admin() {
       setNom((prev) => ({ ...prev, ...nuevos }));
     });
 
-    /* RETIROS */
     onValue(retirosRef, async (s) => {
       const d = s.val() || {};
       const lista = [];
@@ -60,7 +57,6 @@ export default function Admin() {
     });
   }, []);
 
-  /* ----------- aprobar pago ----------- */
   const aprobarPago = async (p) => {
     const {
       uid, pagoId, paqueteId, paqueteNom,
@@ -95,21 +91,26 @@ export default function Admin() {
     alert("✅ Paquete aprobado.");
   };
 
-  /* ----------- aprobar retiro ----------- */
   const aprobarRetiro = async (r) => {
     const { uid, retiroId } = r;
-    await remove(ref(db, `retirosPendientes/${uid}/${retiroId}`)); // ✅ solo elimina
+
+    // Marcar como aprobado en retiros/
+    await update(ref(db, `retiros/${uid}/${retiroId}`), { estado: "aprobado" });
+
+    // Eliminar de pendientes
+    await remove(ref(db, `retirosPendientes/${uid}/${retiroId}`));
+
     alert("✅ Retiro aprobado.");
   };
 
-  /* ----------- rechazar genérico ----------- */
   const rechazar = async (path, uid, id) => {
-    const fullPath = uid ? `${path}/${uid}/${id}` : `${path}/${id}`;
-    await remove(ref(db, fullPath));
+    if (path === "retirosPendientes") {
+      await update(ref(db, `retiros/${uid}/${id}`), { estado: "rechazado" });
+    }
+    await remove(ref(db, `${path}/${uid}/${id}`));
     alert("🚫 Solicitud eliminada.");
   };
 
-  /* ----------- generar código promo ----------- */
   const generarCodigo = async () => {
     const valor = parseInt(promoVal);
     const dias = parseInt(promoDur);
@@ -124,17 +125,20 @@ export default function Admin() {
       usado: false
     });
 
+    setUltimoCodigo(code);
+    setPromoVal(""); setPromoDur("");
     alert(`🎁 Código creado: ${code}`);
-    setPromoVal("");
-    setPromoDur("");
   };
 
-  /* -------- UI -------- */
+  const copiarCodigo = () => {
+    navigator.clipboard.writeText(ultimoCodigo);
+    alert("📋 Código copiado al portapapeles.");
+  };
+
   return (
     <div style={st.bg}>
       <h1 style={st.h1}>🛠️ Panel de Administración</h1>
 
-      {/* ------ PAGOS ------ */}
       <Sec titulo="📩 Pagos pendientes">
         {pagos.length === 0 ? (
           <p style={st.empty}>No hay pagos pendientes.</p>
@@ -153,7 +157,6 @@ export default function Admin() {
         ))}
       </Sec>
 
-      {/* ------ RETIROS ------ */}
       <Sec titulo="💸 Retiros pendientes">
         {retiros.length === 0 ? (
           <p style={st.empty}>No hay retiros pendientes.</p>
@@ -172,7 +175,6 @@ export default function Admin() {
         ))}
       </Sec>
 
-      {/* ------ CÓDIGO PROMOCIONAL ------ */}
       <Sec titulo="🎟️ Generar código promocional">
         <input
           style={st.input}
@@ -187,6 +189,15 @@ export default function Admin() {
           onChange={(e) => setPromoDur(e.target.value)}
         />
         <Btn onClick={generarCodigo}>Generar código</Btn>
+
+        {ultimoCodigo && (
+          <div style={{ marginTop: 10 }}>
+            <p><b>Último código generado:</b></p>
+            <button onClick={copiarCodigo} style={st.copyBtn}>
+              📋 {ultimoCodigo}
+            </button>
+          </div>
+        )}
       </Sec>
     </div>
   );
@@ -227,5 +238,9 @@ const st = {
   input: {
     display: "block", marginBottom: 10, padding: "8px 12px", borderRadius: 8,
     background: "#233044", color: "#fff", border: "1px solid #394b64", width: 220
+  },
+  copyBtn: {
+    padding: "10px 16px", borderRadius: 8, background: "#00bcd4",
+    border: "none", color: "#fff", fontWeight: "bold", cursor: "pointer"
   }
 };
