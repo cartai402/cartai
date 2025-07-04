@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-/* Helpers dominó */
+/* ==== Helpers dominó ==== */
 const crearBaraja = () => {
   const fichas = [];
   for (let i = 0; i <= 6; i++) for (let j = i; j <= 6; j++) fichas.push([i, j]);
   return fichas.sort(() => Math.random() - 0.5);
 };
+
 const fichaMayorDoble = (mano) =>
   mano.filter(f => f[0] === f[1]).sort((a, b) => b[0] - a[0])[0];
 
-/* Puntos de las fichas */
+const contarPuntos = (mano) =>
+  mano.reduce((sum, [a, b]) => sum + a + b, 0);
+
 const puntosFicha = [
   [],
   [[50, 50]],
@@ -35,7 +38,7 @@ const Ficha = ({ v, onClick, activa }) => (
     style={{
       ...styles.ficha,
       cursor: activa ? "pointer" : "default",
-      opacity: activa ? 1 : 0.5,
+      opacity: activa ? 1 : 0.4,
     }}
   >
     <Cara num={v[0]} />
@@ -51,29 +54,9 @@ export default function Game() {
   const [turno, setTurno] = useState("user");
   const [msg, setMsg] = useState("Tu turno");
   const [fin, setFin] = useState("");
-
-  const nuevoJuego = () => {
-    const baraja = crearBaraja();
-    const jugador = baraja.slice(0, 7);
-    const maquina = baraja.slice(7, 14);
-    const primera = fichaMayorDoble(jugador) || fichaMayorDoble(maquina) || jugador[0];
-
-    setMesa([primera]);
-    if (jugador.includes(primera)) {
-      setMano(jugador.filter(f => f !== primera));
-      setIA(maquina);
-      setTurno("ia");
-      setMsg("IA juega...");
-    } else {
-      setMano(jugador);
-      setIA(maquina.filter(f => f !== primera));
-      setTurno("user");
-      setMsg("Tu turno");
-    }
-    setFin("");
-  };
-
-  useEffect(nuevoJuego, []);
+  const [pasaIA, setPasaIA] = useState(false);
+  const [pasaUser, setPasaUser] = useState(false);
+  const [puntaje, setPuntaje] = useState({ user: 0, ia: 0 });
 
   const extremos = () => {
     if (!mesa.length) return { L: null, R: null };
@@ -94,8 +77,13 @@ export default function Game() {
       : ficha[0] === R ? ficha : invertir(ficha);
 
     setMesa(m => (ladoIzq ? [fichaOK, ...m] : [...m, fichaOK]));
-    if (quien === "user") setMano(h => h.filter(f => f !== ficha));
-    else setIA(h => h.filter(f => f !== ficha));
+    if (quien === "user") {
+      setMano(h => h.filter(f => f !== ficha));
+      setPasaUser(false);
+    } else {
+      setIA(h => h.filter(f => f !== ficha));
+      setPasaIA(false);
+    }
   };
 
   const jugarIA = () => {
@@ -108,10 +96,11 @@ export default function Game() {
         setMsg("Tu turno");
       }, 600);
     } else {
+      setPasaIA(true);
       setTimeout(() => {
         setTurno("user");
         setMsg("IA pasa • Tu turno");
-      }, 500);
+      }, 400);
     }
   };
 
@@ -122,23 +111,75 @@ export default function Game() {
     setMsg("IA juega...");
   };
 
+  const finalizarRonda = (ganador, motivo) => {
+    let puntos = 0;
+    if (motivo === "cerrado") {
+      const puntosUser = contarPuntos(mano);
+      const puntosIA = contarPuntos(ia);
+      puntos = Math.abs(puntosUser - puntosIA);
+      ganador = puntosUser < puntosIA ? "user" : "ia";
+    } else {
+      puntos = contarPuntos(ganador === "user" ? ia : mano);
+    }
+
+    setPuntaje(p => {
+      const nuevos = { ...p };
+      nuevos[ganador] += puntos;
+      return nuevos;
+    });
+
+    setTimeout(() => {
+      const total = puntaje[ganador] + puntos;
+      if (total >= 100) {
+        setFin(`🏆 ${ganador === "user" ? "Ganaste el juego" : "La IA ganó el juego"} (${total} pts)`);
+        setMsg("Fin del juego");
+      } else {
+        setFin(`${ganador === "user" ? "Ganaste" : "La IA ganó"} la ronda (+${puntos} pts)`);
+        setMsg("Presiona para continuar");
+      }
+    }, 500);
+  };
+
+  const nuevoJuego = () => {
+    const baraja = crearBaraja();
+    const jugador = baraja.slice(0, 7);
+    const maquina = baraja.slice(7, 14);
+    const primera = fichaMayorDoble(jugador) || fichaMayorDoble(maquina) || jugador[0];
+
+    setMesa([primera]);
+    if (jugador.includes(primera)) {
+      setMano(jugador.filter(f => f !== primera));
+      setIA(maquina);
+      setTurno("ia");
+      setMsg("IA juega...");
+    } else {
+      setMano(jugador);
+      setIA(maquina.filter(f => f !== primera));
+      setTurno("user");
+      setMsg("Tu turno");
+    }
+
+    setFin("");
+    setPasaIA(false);
+    setPasaUser(false);
+  };
+
   useEffect(() => {
     if (turno === "ia" && !fin) jugarIA();
   }, [turno]);
 
   useEffect(() => {
-    if (!fin && mano.length === 0) {
-      setFin("🎉 ¡Ganaste!");
-      setMsg("🎉 ¡Ganaste!");
-    } else if (!fin && ia.length === 0) {
-      setFin("La IA ganó 😓");
-      setMsg("La IA ganó 😓");
-    }
-  }, [mano, ia]);
+    if (!fin && mano.length === 0) finalizarRonda("user", "normal");
+    else if (!fin && ia.length === 0) finalizarRonda("ia", "normal");
+    else if (!fin && pasaIA && pasaUser) finalizarRonda(null, "cerrado");
+  }, [mano, ia, pasaIA, pasaUser]);
+
+  useEffect(nuevoJuego, []);
 
   return (
     <main style={styles.bg}>
       <h2 style={styles.turno}>{msg}</h2>
+      <div style={styles.puntos}>Tú: {puntaje.user} • IA: {puntaje.ia}</div>
 
       <div style={styles.mesa}>
         {mesa.map((f, i) => (
@@ -169,7 +210,7 @@ export default function Game() {
   );
 }
 
-/* Estilos */
+/* ==== Estilos ==== */
 const styles = {
   bg: {
     minHeight: "100vh",
@@ -181,9 +222,14 @@ const styles = {
     alignItems: "center",
   },
   turno: {
-    marginBottom: 12,
-    fontWeight: 600,
+    marginBottom: 8,
+    fontWeight: 700,
     fontSize: 18,
+  },
+  puntos: {
+    marginBottom: 12,
+    fontWeight: 500,
+    fontSize: 16,
   },
   mesa: {
     flex: 1,
@@ -194,15 +240,15 @@ const styles = {
     display: "flex",
     flexWrap: "wrap",
     justifyContent: "center",
-    minHeight: 150,
+    minHeight: 160,
     maxWidth: "100%",
   },
   mano: {
-    marginTop: 20,
+    marginTop: 16,
     display: "flex",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: 6,
+    gap: 8,
   },
   ficha: {
     width: 60,
