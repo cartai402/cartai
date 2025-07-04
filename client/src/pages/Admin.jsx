@@ -1,220 +1,185 @@
+// Admin.jsx
 import React, { useEffect, useState } from "react";
 import { ref, onValue, update, get, remove } from "firebase/database";
 import { getAuth } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
 
-/* ==== Helpers ==== */
+/* ==== helpers ==== */
 const COP = (n) => n?.toLocaleString("es-CO") ?? "0";
-const formatFecha = (ms) => new Date(ms).toLocaleString("es-CO");
+const fmt = (ms) => new Date(ms).toLocaleString("es-CO");
 
-export default function AdminPanel() {
-  const [pagos, setPagos] = useState([]);
-  const [retiros, setRetiros] = useState([]);
-  const [nombres, setNombres] = useState({});
-  const navigate = useNavigate();
+export default function Admin() {
+  const [pagos, setPagos]   = useState([]);
+  const [retiros, setRets]  = useState([]);
+  const [nombres, setNom]   = useState({});
+  const nav  = useNavigate();
   const auth = getAuth();
-  const user = auth.currentUser;
+  const usr  = auth.currentUser;
 
+  /* ----------- acceso sólo admin ----------- */
   useEffect(() => {
-    if (!user || user.email !== "admincartai@cartai.com") {
-      navigate("/dashboard");
-    }
-  }, [user]);
+    if (!usr || usr.email !== "admincartai@cartai.com") nav("/dashboard");
+  }, [usr]);
 
-  // Cargar nombres + pagos + retiros
+  /* ----------- cargar listados ----------- */
   useEffect(() => {
-    const pagosRef = ref(db, "pagosPendientes");
+    const pagosRef   = ref(db, "pagosPendientes");
     const retirosRef = ref(db, "retirosPendientes");
 
-    // PAGOS
-    onValue(pagosRef, async (snap) => {
-      const data = snap.val() || {};
+    /* PAGOS */
+    onValue(pagosRef, async (s) => {
+      const d = s.val() || {};
       const lista = [];
-      const nuevosNombres = {};
-
-      for (const [uid, pagosUsuario] of Object.entries(data)) {
-        const nomSnap = await get(ref(db, `usuarios/${uid}/nombre`));
-        nuevosNombres[uid] = nomSnap.exists() ? nomSnap.val() : "Usuario";
-        for (const [id, pago] of Object.entries(pagosUsuario)) {
-          lista.push({ ...pago, uid });
-        }
+      const nuevos = {};
+      for (const [uid, byUser] of Object.entries(d)) {
+        const n = await get(ref(db, `usuarios/${uid}/nombre`));
+        nuevos[uid] = n.exists() ? n.val() : "Usuario";
+        for (const [id, p] of Object.entries(byUser)) lista.push({ ...p, uid });
       }
-
       setPagos(lista);
-      setNombres((prev) => ({ ...prev, ...nuevosNombres }));
+      setNom((prev) => ({ ...prev, ...nuevos }));
     });
 
-    // RETIROS
-    onValue(retirosRef, async (snap) => {
-      const data = snap.val() || {};
+    /* RETIROS */
+    onValue(retirosRef, async (s) => {
+      const d = s.val() || {};
       const lista = [];
-      const nuevosNombres = {};
-
-      for (const [uid, retirosUsuario] of Object.entries(data)) {
-        const nomSnap = await get(ref(db, `usuarios/${uid}/nombre`));
-        nuevosNombres[uid] = nomSnap.exists() ? nomSnap.val() : "Usuario";
-        for (const [id, retiro] of Object.entries(retirosUsuario)) {
-          lista.push({ ...retiro, uid, retiroId: id });
-        }
+      const nuevos = {};
+      for (const [uid, byUser] of Object.entries(d)) {
+        const n = await get(ref(db, `usuarios/${uid}/nombre`));
+        nuevos[uid] = n.exists() ? n.val() : "Usuario";
+        for (const [id, r] of Object.entries(byUser))
+          lista.push({ ...r, uid, retiroId: id });
       }
-
-      setRetiros(lista);
-      setNombres((prev) => ({ ...prev, ...nuevosNombres }));
+      setRets(lista);
+      setNom((prev) => ({ ...prev, ...nuevos }));
     });
   }, []);
 
-  // Aprobar pago
+  /* ----------- aprobar pago ----------- */
   const aprobarPago = async (p) => {
-    const { uid, pagoId, paqueteId, paqueteNom, invertido, ganDia, pagoFinal, durDias, tipo } = p;
+    const { uid, pagoId, paqueteId, paqueteNom,
+            invertido, ganDia, pagoFinal, durDias, tipo } = p;
 
-    const userRef = ref(db, `usuarios/${uid}`);
-    const snap = await get(userRef);
-    const data = snap.val();
-    const actual = data?.invertido ?? 0;
-    const ganado = data?.ganado ?? 0;
+    const uRef  = ref(db, `usuarios/${uid}`);
+    const snap  = await get(uRef);
+    const info  = snap.val() || {};
+    const invAc = info.invertido ?? 0;
 
-    const fechaActual = new Date();
-    const hoy = fechaActual.toISOString().split("T")[0]; // YYYY-MM-DD
-
-    const newPack = {
-      id: paqueteId,
-      nombre: paqueteNom,
-      valor: invertido,
-      ganDia: ganDia ?? null,
-      pagoFinal: pagoFinal ?? null,
-      dur: durDias,
+    /* paquete listo para que Dashboard lo procese */
+    const pack = {
+      id         : paqueteId,
+      nombre     : paqueteNom,
+      valor      : invertido,
+      ganDia     : ganDia   ?? null,
+      pagoFinal  : pagoFinal?? null,
+      dur        : durDias,
       tipo,
-      fecha: Date.now(),
+      fecha      : Date.now(),
+      iniciado   : false,          // <- el Dashboard lo detecta
+      reclamado  : false,
+      diasRestantes: durDias
     };
 
-    // Si es paquete diario: añadir ganancia del día + guardar fecha último reclamo
-    if (tipo === "diario") {
-      newPack.ultimoRec = hoy;
-      await update(userRef, {
-        invertido: actual + invertido,
-        ganado: ganado + ganDia,
-        [`paquetes/${pagoId}`]: newPack,
-      });
-    } else {
-      // Paquete final, sin ganancia aún
-      await update(userRef, {
-        invertido: actual + invertido,
-        [`paquetes/${pagoId}`]: newPack,
-      });
-    }
-
-    await remove(ref(db, `pagosPendientes/${uid}/${pagoId}`));
-    alert("✅ Paquete aprobado y saldo actualizado.");
-  };
-
-  // Aprobar retiro
-  const aprobarRetiro = async (r) => {
-    const { uid, monto, retiroId } = r;
-    const userRef = ref(db, `usuarios/${uid}`);
-    const snap = await get(userRef);
-    const saldo = snap.val()?.saldo ?? 0;
-
-    if (saldo < monto) {
-      alert("❌ Saldo insuficiente para este retiro.");
-      return;
-    }
-
-    await update(userRef, {
-      saldo: saldo - monto,
+    await update(uRef, {
+      invertido            : invAc + invertido,
+      [`paquetes/${pagoId}`]: pack
     });
 
-    await remove(ref(db, `retirosPendientes/${uid}/${retiroId}`));
-    alert("✅ Retiro aprobado y saldo descontado.");
+    await remove(ref(db, `pagosPendientes/${uid}/${pagoId}`));
+    alert("✅ Paquete aprobado.");
   };
 
-  // Rechazar retiro o pago
-  const rechazar = async (uid, id, tipo) => {
-    await remove(ref(db, `${tipo}/${uid}/${id}`));
+  /* ----------- aprobar retiro ----------- */
+  const aprobarRetiro = async (r) => {
+    const { uid, retiroId, monto } = r;
+    const uRef = ref(db, `usuarios/${uid}`);
+    const s    = await get(uRef);
+    const g    = s.val()?.ganancias ?? 0;
+
+    if (g < monto) return alert("❌ Saldo insuficiente.");
+    await update(uRef, { ganancias: g - monto });
+    await remove(ref(db, `retirosPendientes/${uid}/${retiroId}`));
+    alert("✅ Retiro aprobado.");
+  };
+
+  /* ----------- rechazar genérico ----------- */
+  const rechazar = async (path, uid, id) => {
+    await remove(ref(db, `${path}/${uid}/${id}`));
     alert("🚫 Solicitud eliminada.");
   };
 
-  /* ========== UI ========== */
+  /* -------- UI -------- */
   return (
-    <div style={styles.bg}>
-      <h1 style={styles.h1}>🛠️ Panel de Administración</h1>
+    <div style={st.bg}>
+      <h1 style={st.h1}>🛠️ Panel de Administración</h1>
 
-      {/* PAGOS */}
-      <section style={styles.section}>
-        <h2 style={styles.h2}>📩 Pagos pendientes</h2>
+      {/* ------ PAGOS ------ */}
+      <Sec titulo="📩 Pagos pendientes">
         {pagos.length === 0 ? (
-          <p style={styles.empty}>No hay pagos pendientes.</p>
-        ) : (
-          pagos.map((p, i) => (
-            <div key={i} style={styles.card}>
-              <p><b>Usuario:</b> {nombres[p.uid]}</p>
-              <p><b>Paquete:</b> {p.paqueteNom}</p>
-              <p><b>Inversión:</b> ${COP(p.invertido)}</p>
-              <p><b>Referencia:</b> {p.referencia}</p>
-              <div style={styles.btnRow}>
-                <button onClick={() => aprobarPago(p)} style={styles.btnA}>Aprobar</button>
-                <button onClick={() => rechazar(p.uid, p.pagoId, "pagosPendientes")} style={styles.btnR}>Rechazar</button>
-              </div>
-            </div>
-          ))
-        )}
-      </section>
+          <p style={st.empty}>No hay pagos pendientes.</p>
+        ) : pagos.map((p) => (
+          <Card key={p.pagoId}>
+            <p><b>Usuario:</b> {nombres[p.uid]}</p>
+            <p><b>Paquete:</b> {p.paqueteNom}</p>
+            <p><b>Inversión:</b> ${COP(p.invertido)}</p>
+            <p><b>Referencia:</b> {p.referencia ?? "—"}</p>
+            <BtnRow>
+              <Btn verde onClick={() => aprobarPago(p)}>Aprobar</Btn>
+              <Btn rojo  onClick={() => rechazar("pagosPendientes", p.uid, p.pagoId)}>Rechazar</Btn>
+            </BtnRow>
+          </Card>
+        ))}
+      </Sec>
 
-      {/* RETIROS */}
-      <section style={styles.section}>
-        <h2 style={styles.h2}>💸 Retiros pendientes</h2>
+      {/* ------ RETIROS ------ */}
+      <Sec titulo="💸 Retiros pendientes">
         {retiros.length === 0 ? (
-          <p style={styles.empty}>No hay retiros pendientes.</p>
-        ) : (
-          retiros.map((r, i) => (
-            <div key={i} style={styles.card}>
-              <p><b>Usuario:</b> {nombres[r.uid]}</p>
-              <p><b>Monto:</b> ${COP(r.monto)}</p>
-              <p><b>Cuenta:</b> {r.tipoCuenta} – {r.numeroCuenta}</p>
-              <p><b>Fecha:</b> {formatFecha(r.fecha)}</p>
-              <div style={styles.btnRow}>
-                <button onClick={() => aprobarRetiro(r)} style={styles.btnA}>Aprobar</button>
-                <button onClick={() => rechazar(r.uid, r.retiroId, "retirosPendientes")} style={styles.btnR}>Rechazar</button>
-              </div>
-            </div>
-          ))
-        )}
-      </section>
+          <p style={st.empty}>No hay retiros pendientes.</p>
+        ) : retiros.map((r) => (
+          <Card key={r.retiroId}>
+            <p><b>Usuario:</b> {nombres[r.uid]}</p>
+            <p><b>Monto:</b> ${COP(r.monto)}</p>
+            <p><b>Cuenta:</b> {r.tipoCuenta} – {r.numeroCuenta}</p>
+            <p><b>Fecha:</b> {fmt(r.fecha)}</p>
+            <BtnRow>
+              <Btn verde onClick={() => aprobarRetiro(r)}>Aprobar</Btn>
+              <Btn rojo  onClick={() => rechazar("retirosPendientes", r.uid, r.retiroId)}>Rechazar</Btn>
+            </BtnRow>
+          </Card>
+        ))}
+      </Sec>
     </div>
   );
 }
 
-/* ========== Estilos ========== */
-const styles = {
-  bg: { background: "#0a0f1e", minHeight: "100vh", padding: 20, color: "white" },
-  h1: { fontSize: 28, marginBottom: 20 },
-  h2: { fontSize: 22, borderBottom: "1px solid #444", paddingBottom: 6, marginBottom: 10 },
-  section: { marginBottom: 40 },
-  empty: { opacity: 0.6, fontStyle: "italic" },
-  card: {
-    background: "#1e293b",
-    padding: 16,
-    borderRadius: 14,
-    marginBottom: 16,
-    boxShadow: "4px 4px 10px #0008",
-  },
-  btnRow: { display: "flex", gap: 10, marginTop: 12 },
-  btnA: {
-    background: "#4caf50",
-    border: "none",
-    padding: "8px 16px",
-    borderRadius: 8,
-    color: "white",
-    fontWeight: "bold",
-    cursor: "pointer",
-  },
-  btnR: {
-    background: "#e53935",
-    border: "none",
-    padding: "8px 16px",
-    borderRadius: 8,
-    color: "white",
-    fontWeight: "bold",
-    cursor: "pointer",
-  },
+/* ---- helpers UI ---- */
+const Sec   = ({ titulo, children }) => (<section style={st.sec}><h2 style={st.h2}>{titulo}</h2>{children}</section>);
+const Card  = ({ children }) => (<div style={st.card}>{children}</div>);
+const BtnRow= ({ children }) => (<div style={st.btnRow}>{children}</div>);
+const Btn   = ({ verde, rojo, children, ...pr }) => (
+  <button
+    {...pr}
+    style={{
+      ...st.btnBase,
+      background: verde ? "#4caf50" : rojo ? "#e53935" : "#607d8b"
+    }}
+  >
+    {children}
+  </button>
+);
+
+/* ---- estilos ---- */
+const st = {
+  bg   : { background:"#0a0f1e", minHeight:"100vh", padding:20, color:"#fff" },
+  h1   : { fontSize:28, marginBottom:20 },
+  h2   : { fontSize:22, borderBottom:"1px solid #444", paddingBottom:6, marginBottom:10 },
+  sec  : { marginBottom:40 },
+  empty: { opacity:.65, fontStyle:"italic" },
+  card : { background:"#1e293b", padding:16, borderRadius:14, marginBottom:16,
+           boxShadow:"4px 4px 10px #0008" },
+  btnRow:{ display:"flex", gap:10, marginTop:12 },
+  btnBase:{ border:"none", padding:"8px 16px", borderRadius:8,
+            color:"#fff", fontWeight:"bold", cursor:"pointer" }
 };
