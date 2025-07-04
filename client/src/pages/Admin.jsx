@@ -68,13 +68,15 @@ export default function AdminPanel() {
   const aprobarPago = async (p) => {
     const { uid, pagoId, paqueteId, paqueteNom, invertido, ganDia, pagoFinal, durDias, tipo } = p;
 
-    // Sumar inversión total
     const userRef = ref(db, `usuarios/${uid}`);
     const snap = await get(userRef);
     const data = snap.val();
     const actual = data?.invertido ?? 0;
+    const ganado = data?.ganado ?? 0;
 
-    // Añadir paquete
+    const fechaActual = new Date();
+    const hoy = fechaActual.toISOString().split("T")[0]; // YYYY-MM-DD
+
     const newPack = {
       id: paqueteId,
       nombre: paqueteNom,
@@ -83,13 +85,24 @@ export default function AdminPanel() {
       pagoFinal: pagoFinal ?? null,
       dur: durDias,
       tipo,
-      fecha: Date.now()
+      fecha: Date.now(),
     };
 
-    await update(userRef, {
-      invertido: actual + invertido,
-      [`paquetes/${pagoId}`]: newPack,
-    });
+    // Si es paquete diario: añadir ganancia del día + guardar fecha último reclamo
+    if (tipo === "diario") {
+      newPack.ultimoRec = hoy;
+      await update(userRef, {
+        invertido: actual + invertido,
+        ganado: ganado + ganDia,
+        [`paquetes/${pagoId}`]: newPack,
+      });
+    } else {
+      // Paquete final, sin ganancia aún
+      await update(userRef, {
+        invertido: actual + invertido,
+        [`paquetes/${pagoId}`]: newPack,
+      });
+    }
 
     await remove(ref(db, `pagosPendientes/${uid}/${pagoId}`));
     alert("✅ Paquete aprobado y saldo actualizado.");
@@ -98,7 +111,6 @@ export default function AdminPanel() {
   // Aprobar retiro
   const aprobarRetiro = async (r) => {
     const { uid, monto, retiroId } = r;
-
     const userRef = ref(db, `usuarios/${uid}`);
     const snap = await get(userRef);
     const saldo = snap.val()?.saldo ?? 0;
