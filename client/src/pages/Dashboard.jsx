@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getDatabase, ref, onValue, update, get } from 'firebase/database';
+import { getDatabase, ref, onValue, update } from 'firebase/database';
 import { getAuth, signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 
@@ -13,7 +13,7 @@ export default function Dashboard() {
 
   const [data, setData] = useState(null);
   const [showIA, setShowIA] = useState(false);
-  const [showFelicidades, setShowFelicidades] = useState(null); // IA o paquete activo
+  const [showFelicidades, setShowFelicidades] = useState(null);
 
   useEffect(() => {
     if (!usr) return;
@@ -30,7 +30,8 @@ export default function Dashboard() {
             update(ref(db, 'usuarios/' + usr.uid), {
               ganancias: nuevaGanancia,
               [`paquetes/${id}/iniciado`]: true,
-              [`paquetes/${id}/reclamado`]: true, // ✅ SE AGREGA ESTO
+              [`paquetes/${id}/reclamado`]: true,
+              [`paquetes/${id}/ultimoReclamo`]: Date.now(),
               [`paquetes/${id}/diasRestantes`]: p.dur - 1,
             });
             setShowFelicidades(p.nombre);
@@ -46,32 +47,35 @@ export default function Dashboard() {
       iaSaldo: 0,
       iaDiasRestantes: 60,
       iaReclamado: false,
+      iaUltimoReclamo: 0
     });
     setShowIA(false);
-
-    setShowFelicidades({
-      tipo: 'ia'
-    });
+    setShowFelicidades({ tipo: 'ia' });
   };
 
   const reclamar = () => {
-    if (!data || data.iaReclamado || data.iaDiasRestantes <= 0) return;
-    const nuevoSaldo = (data.iaSaldo ?? 0) + 1000;
+    const hoy = new Date();
+    const ultima = new Date(data.iaUltimoReclamo ?? 0);
+    if (!data || data.iaDiasRestantes <= 0 || ultima.toDateString() === hoy.toDateString()) return;
 
+    const nuevoSaldo = (data.iaSaldo ?? 0) + 1000;
     update(ref(db, 'usuarios/' + usr.uid), {
       iaSaldo: nuevoSaldo,
       iaDiasRestantes: data.iaDiasRestantes - 1,
-      iaReclamado: true,
+      iaUltimoReclamo: Date.now(),
     });
   };
 
   const reclamarPaquete = (id, p) => {
-    if (!data?.paquetes?.[id] || p.reclamado || p.diasRestantes <= 0) return;
-    const nuevaGanancia = (data.ganancias ?? 0) + (p.ganDia ?? 0);
+    const hoy = new Date();
+    const ultima = new Date(p.ultimoReclamo ?? 0);
+    if (!data?.paquetes?.[id] || p.diasRestantes <= 0 || ultima.toDateString() === hoy.toDateString()) return;
 
+    const nuevaGanancia = (data.ganancias ?? 0) + (p.ganDia ?? 0);
     update(ref(db, 'usuarios/' + usr.uid), {
       ganancias: nuevaGanancia,
       [`paquetes/${id}/reclamado`]: true,
+      [`paquetes/${id}/ultimoReclamo`]: Date.now(),
       [`paquetes/${id}/diasRestantes`]: p.diasRestantes - 1,
     });
   };
@@ -89,7 +93,7 @@ export default function Dashboard() {
         <NavBtn emoji="🏠" text="Dashboard" to="/dashboard" />
         <NavBtn emoji="💼" text="Invertir" to="/invest" />
         <NavBtn emoji="💸" text="Retirar" to="/withdraw" />
-        <NavBtn emoji="📨" text="Invitar" to="/referrals" />
+        <NavBtn emoji="🎁" text="Bonos y Recompensas" to="/referrals" />
         <NavBtn emoji="🎮" text="Jugar" to="/game" />
         <button onClick={logout} style={styles.logout}>Cerrar sesión</button>
       </div>
@@ -97,7 +101,6 @@ export default function Dashboard() {
       <h1 style={styles.h1}>Bienvenido, {usr.displayName?.split('|')[0] ?? 'Usuario'} 👋</h1>
       <p style={styles.subtitle}>Resumen de tu inversión</p>
 
-      {/* ==== IA gratuita ==== */}
       {data.iaActiva && (
         <Card>
           <h2 style={styles.cardTitle}>🤖 IA gratuita</h2>
@@ -106,26 +109,25 @@ export default function Dashboard() {
           <Progress pct={100 - (data.iaDiasRestantes / 60) * 100} />
           <button
             onClick={reclamar}
-            disabled={data.iaReclamado}
+            disabled={new Date(data.iaUltimoReclamo ?? 0).toDateString() === new Date().toDateString()}
             style={{
               ...styles.cta,
-              backgroundColor: data.iaReclamado ? '#555' : '#00c853',
-              cursor: data.iaReclamado ? 'default' : 'pointer'
+              backgroundColor: new Date(data.iaUltimoReclamo ?? 0).toDateString() === new Date().toDateString() ? '#555' : '#00c853'
             }}
           >
-            {data.iaReclamado ? 'Reclamado hoy' : 'Reclamar $1.000 bono'}
+            {new Date(data.iaUltimoReclamo ?? 0).toDateString() === new Date().toDateString()
+              ? 'Reclamado hoy'
+              : 'Reclamar $1.000 bono'}
           </button>
         </Card>
       )}
 
-      {/* ==== métricas ==== */}
       <div style={styles.metricsWrap}>
         <Metric label="Invertido" val={data.invertido ?? 0} />
         <Metric label="Ganancias" val={data.ganancias ?? 0} />
         <Metric label="Bonos" val={data.iaSaldo ?? 0} />
       </div>
 
-      {/* ==== paquetes activos ==== */}
       <h3 style={styles.section}>📦 Paquetes activos</h3>
       {data.paquetes
         ? Object.entries(data.paquetes).map(([id, p]) => (
@@ -137,49 +139,29 @@ export default function Dashboard() {
             <Progress pct={100 - (p.diasRestantes / p.dur) * 100} />
             <button
               onClick={() => reclamarPaquete(id, p)}
-              disabled={p.reclamado}
+              disabled={new Date(p.ultimoReclamo ?? 0).toDateString() === new Date().toDateString()}
               style={{
                 ...styles.cta,
-                backgroundColor: p.reclamado ? '#555' : '#2196f3',
-                cursor: p.reclamado ? 'default' : 'pointer'
+                backgroundColor: new Date(p.ultimoReclamo ?? 0).toDateString() === new Date().toDateString() ? '#555' : '#2196f3'
               }}
             >
-              {p.reclamado ? 'Reclamado hoy' : `Reclamar $${COP(p.ganDia)}`}
+              {new Date(p.ultimoReclamo ?? 0).toDateString() === new Date().toDateString()
+                ? 'Reclamado hoy'
+                : `Reclamar $${COP(p.ganDia)}`}
             </button>
           </Card>
         ))
         : <p style={{ color: '#9ca3af' }}>Aún no tienes paquetes.</p>
       }
 
-      {/* ==== modal bienvenida IA ==== */}
       {showIA && <ModalIA onClose={() => setShowIA(false)} onOk={activarIA} />}
-
-      {/* ==== mensaje de activación ==== */}
       {showFelicidades && (
         <div style={styles.modalOverlay}>
           <div style={styles.modalBox}>
             <h2>🎉 ¡Felicidades!</h2>
-            {typeof showFelicidades === 'string' ? (
-              <p style={{ marginTop: 10 }}>
-                Tu paquete <b>{showFelicidades}</b> ha sido activado correctamente.
-                <br /><br />
-                Recuerda reclamar tus ganancias diarias cada día.
-              </p>
-            ) : showFelicidades.tipo === 'ia' ? (
-              <p style={{ marginTop: 10 }}>
-                Has activado la <b>IA gratuita</b> por 60 días.<br />
-                Puedes reclamar <b>$1.000 COP diarios</b>.<br />
-                Para retirar tu bono, necesitarás un paquete activo y mínimo <b>$50.000</b> en bonos acumulados.
-              </p>
-            ) : (
-              <p style={{ marginTop: 10 }}>
-                Gracias por pertenecer a esta hermosa comunidad.<br />
-                Tu paquete <b>{showFelicidades.nombre}</b> ha sido activado.<br />
-                Inversión: <b>${COP(showFelicidades.valor)}</b><br />
-                Ganancia diaria: <b>${COP(showFelicidades.ganDia)}</b><br />
-                Duración: <b>{showFelicidades.dur} días</b>
-              </p>
-            )}
+            <p style={{ marginTop: 10 }}>
+              Has activado tu paquete <b>{showFelicidades.nombre ?? "o IA gratuita"}</b> correctamente.
+            </p>
             <button style={{ ...styles.cta, width: '100%' }} onClick={() => setShowFelicidades(null)}>Entendido</button>
           </div>
         </div>
@@ -188,7 +170,6 @@ export default function Dashboard() {
   );
 }
 
-/* ==== COMPONENTES ==== */
 const Loader = () => (
   <div style={{ ...styles.bg, justifyContent: 'center', alignItems: 'center' }}>
     Cargando…
@@ -233,7 +214,6 @@ const ModalIA = ({ onClose, onOk }) => (
   </div>
 );
 
-/* ==== ESTILOS ==== */
 const styles = {
   bg: { background: '#0a0f1e', minHeight: '100vh', color: 'white', padding: 15 },
   navWrap: { display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 25 },
