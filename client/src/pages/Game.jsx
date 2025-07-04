@@ -1,17 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-/* utilidades */
+/* ===== Helpers dominó ===== */
 const baraja = () => {
   const s = [];
   for (let i = 0; i <= 6; i++) for (let j = i; j <= 6; j++) s.push([i, j]);
   return s.sort(() => Math.random() - 0.5);
 };
 const dobleMayor = (h) =>
-  h.filter(f => f[0] === f[1]).sort((a, b) => b[0] - a[0])[0];
+  h.filter((f) => f[0] === f[1]).sort((a, b) => b[0] - a[0])[0];
 const suma = (m) => m.reduce((t, [a, b]) => t + a + b, 0);
 
-/* puntos visuales */
+/* puntos dibujados */
 const dots = [
   [], [[50, 50]], [[25, 25], [75, 75]],
   [[25,25],[50,50],[75,75]],
@@ -26,21 +26,24 @@ const Face = ({ n }) => (
     ))}
   </div>
 );
-const Tile = ({ v, oculta, draggable, onDragStart }) => (
+const Tile = ({ v, oculta, draggable, onDragStart, rotate }) => (
   <div
     draggable={draggable}
     onDragStart={onDragStart}
     style={{
       ...st.tile,
+      transform: `perspective(600px) rotateX(6deg) rotate(${rotate || 0}deg)`,
       background: oculta ? "#c7c7c7" : "#fff",
       boxShadow: oculta ? "inset 0 0 8px #888" : "2px 2px 6px #0005",
       cursor: draggable ? "grab" : "default",
     }}
   >
-    {oculta ? <div style={st.backLine} /> : (
+    {oculta ? (
+      <div style={st.backLine}></div>
+    ) : (
       <>
         <Face n={v[0]} />
-        <div style={st.div} />
+        <div style={st.div}></div>
         <Face n={v[1]} />
       </>
     )}
@@ -48,16 +51,16 @@ const Tile = ({ v, oculta, draggable, onDragStart }) => (
 );
 
 export default function Game() {
-  /* estado */
+  /* ---------- estado ---------- */
   const [board, setBoard] = useState([]);
   const [hand, setHand] = useState([]);
   const [ai, setAI]     = useState([]);
   const [turn, setTurn] = useState("user");
   const [msg, setMsg]   = useState("Arrastra una ficha");
   const [score, setScore] = useState({ user: 0, ai: 0 });
-  const [end, setEnd] = useState(false);
+  const [end, setEnd]   = useState(false);
 
-  /* --- nueva ronda --- */
+  /* ---------- nueva ronda ---------- */
   const nuevaRonda = () => {
     const d = baraja();
     const u = d.slice(0, 7);
@@ -78,15 +81,16 @@ export default function Game() {
   };
   useEffect(nuevaRonda, []);
 
-  /* extremos y validaciones */
-  const ends = () => board.length ? { L: board[0][0], R: board.at(-1)[1] } : { L: null, R: null };
-  const canPlay = (f) => {
+  /* ---------- util ---------- */
+  const ends = () =>
+    board.length ? { L: board[0][0], R: board.at(-1)[1] } : { L: null, R: null };
+  const canPlay = (t) => {
     const { L, R } = ends();
-    return f.includes(L) || f.includes(R);
+    return t.includes(L) || t.includes(R);
   };
   const colocar = (ficha, side) => {
     const rev = ([a, b]) => [b, a];
-    setBoard(b => {
+    setBoard((b) => {
       if (!b.length) return [ficha];
       if (side === "left") {
         const L = b[0][0];
@@ -100,32 +104,29 @@ export default function Game() {
     });
   };
 
-  /* drag handlers */
-  const onDragStart = (idx) => (e) => e.dataTransfer.setData("idx", idx);
+  /* ---------- drag & drop ---------- */
+  const dragStart = (i) => (e) => e.dataTransfer.setData("idx", i);
   const allow = (e) => e.preventDefault();
   const drop = (side) => (e) => {
     e.preventDefault();
     if (turn !== "user") return;
     const idx = +e.dataTransfer.getData("idx");
     const ficha = hand[idx];
-    if (!ficha || !canPlay(ficha)) return;
-    if (side === "left" && !ficha.includes(ends().L)) return;
-    if (side === "right" && !ficha.includes(ends().R)) return;
-
-    colocar(ficha, side);
-    setHand(h => h.filter((_, i) => i !== idx));
+    if (!ficha || !canPlay(ficha)) return;      // no encaja
+    colocar(ficha, side);                       // coloca
+    setHand((h) => h.filter((_, j) => j !== idx));
     setTurn("ia"); setMsg("IA juega…");
   };
 
-  /* IA básica */
+  /* ---------- IA simple ---------- */
   useEffect(() => {
     if (turn !== "ia" || end) return;
     const { L, R } = ends();
-    const play = ai.find(f => f.includes(L) || f.includes(R));
+    const play = ai.find((f) => f.includes(L) || f.includes(R));
     if (play) {
       setTimeout(() => {
         colocar(play, play.includes(L) ? "left" : "right");
-        setAI(h => h.filter(x => x !== play));
+        setAI((h) => h.filter((x) => x !== play));
         setTurn("user"); setMsg("Arrastra una ficha");
       }, 600);
     } else {
@@ -136,78 +137,80 @@ export default function Game() {
     }
   }, [turn]);
 
-  /* fin ronda / partida */
+  /* ---------- cierre / puntos ---------- */
   useEffect(() => {
     if (end) return;
 
-    const checkFin = () => {
-      if (!hand.length || !ai.length) return true;
-      if (turn === "user" && hand.every(f => !canPlay(f)) &&
-          ai.every(f => !canPlay(f))) return true;
-      return false;
-    };
-    if (!checkFin()) return;
+    const nadiePuede =
+      hand.every(f => !canPlay(f)) && ai.every(f => !canPlay(f));
+    const alguienVacio = !hand.length || !ai.length;
 
-    const puntosU = suma(hand);
-    const puntosA = suma(ai);
-    let winner, pts;
-    if (!hand.length)      { winner = "user"; pts = puntosA; }
-    else if (!ai.length)   { winner = "ai";   pts = puntosU; }
-    else if (puntosU < puntosA) { winner = "user"; pts = puntosA - puntosU; }
-    else                        { winner = "ai";   pts = puntosU - puntosA; }
+    if (!nadiePuede && !alguienVacio) return;
 
-    setScore(s => ({ ...s, [winner]: s[winner] + pts }));
-    const total = score[winner] + pts;
-    if (total >= 100) {
-      setEnd(true);
-      setMsg(winner === "user" ? "🏆 ¡Ganaste la partida!" : "La IA ganó la partida 😓");
-    } else {
-      setEnd(true);
-      setMsg(winner === "user" ? `Ganaste la ronda (+${pts})` : `IA gana la ronda (+${pts})`);
-    }
+    const ptsU = suma(hand);
+    const ptsA = suma(ai);
+    let winner, add;
+    if (!hand.length)   { winner = "user"; add = ptsA; }
+    else if (!ai.length){ winner = "ai";   add = ptsU; }
+    else if (ptsU < ptsA){winner="user"; add = ptsA - ptsU;}
+    else                { winner="ai";   add = ptsU - ptsA;}
+
+    setScore((s) => ({ ...s, [winner]: s[winner] + add }));
+    const total = score[winner] + add;
+    setEnd(true);
+    setMsg(
+      total >= 100
+        ? winner === "user"
+          ? "🏆 ¡Ganaste la partida!"
+          : "La IA ganó la partida 😓"
+        : winner === "user"
+          ? `Ganaste la ronda (+${add})`
+          : `IA gana la ronda (+${add})`
+    );
   }, [hand, ai, turn]);
 
-  /* render */
+  /* ---------- render ---------- */
   return (
     <main style={st.bg}>
-      <h2 style={st.title}>{msg}</h2>
-      <div style={st.score}>
-        Tú&nbsp;{score.user} — IA&nbsp;{score.ai}
-      </div>
+      <h2 style={st.msg}>{msg}</h2>
+      <div style={st.score}>Tú {score.user} — IA {score.ai}</div>
 
-      {/* mesa ovalada */}
+      {/* ---- mesa ovalada ---- */}
       <div style={st.tableOuter}>
-        {/* drop zonas (izq / der) */}
-        <div style={st.dropLeft}  onDragOver={allow} onDrop={drop("left")} />
+        {/* zonas drop */}
+        <div style={st.drop} onDragOver={allow} onDrop={drop("left")} />
         <div style={st.tableInner}>
           {board.map((f, i) => (
-            <Tile key={i} v={f} />
+            <Tile key={i} v={f} rotate={i % 2 ? 90 : 0} />
           ))}
         </div>
-        <div style={st.dropRight} onDragOver={allow} onDrop={drop("right")} />
+        <div style={st.drop} onDragOver={allow} onDrop={drop("right")} />
       </div>
 
-      {/* mano del usuario */}
+      {/* mano usuario */}
       <div style={st.hand}>
         {hand.map((f, i) => (
           <Tile
             key={i}
             v={f}
             draggable
-            onDragStart={onDragStart(i)}
+            onDragStart={dragStart(i)}
+            rotate={0}
           />
         ))}
       </div>
 
-      {/* IA boca abajo */}
+      {/* fichas IA ocultas */}
       <div style={st.ai}>
         {ai.map((_, i) => (
-          <Tile key={i} v={[0, 0]} oculta />
+          <Tile key={i} v={[0, 0]} oculta rotate={0} />
         ))}
       </div>
 
       {end ? (
-        <button onClick={nuevaRonda} style={st.btn}>🔄 Nueva ronda</button>
+        <button style={st.btn} onClick={nuevaRonda}>
+          🔄 Nueva ronda
+        </button>
       ) : (
         <Link to="/dashboard" style={st.link}>← Dashboard</Link>
       )}
@@ -215,60 +218,68 @@ export default function Game() {
   );
 }
 
-/* estilos inline */
+/* ===== ESTILOS ===== */
 const st = {
-  bg: { minHeight:"100vh",background:"#10241a",color:"#fff",padding:12,
-        display:"flex",flexDirection:"column",alignItems:"center" },
-  title:{ fontWeight:700, marginBottom:6 },
-  score:{ marginBottom:10 },
+  /* layout */
+  bg: { minHeight: "100vh", background: "#0b2e22", color: "#fff",
+        display: "flex", flexDirection: "column", alignItems: "center",
+        padding: 12 },
+  msg: { fontWeight: 700, marginBottom: 4, textAlign: "center" },
+  score: { marginBottom: 10 },
 
-  /* mesa física */
-  tableOuter:{
-    position:"relative",
-    width:"100%",maxWidth:480,
-    padding:"18px 34px",
-    borderRadius:220/2,
-    background:"#8b5a2b",                       /* madera */
-    boxShadow:"inset 0 0 12px #000a, 0 4px 12px #0007",
-    display:"flex",alignItems:"center",
-    marginBottom:14,
+  /* mesa */
+  tableOuter: {
+    position: "relative",
+    width: "100%", maxWidth: 440,
+    padding: "16px 30px",
+    borderRadius: 220/2,
+    background: "#8b5a2b",
+    boxShadow: "inset 0 0 12px #0009, 0 6px 14px #0007",
+    display: "flex", alignItems: "center",
+    marginBottom: 14,
   },
-  tableInner:{
-    flex:1,
-    minHeight:110,
-    background:"#0E7B47",                       /* tapete verde */
-    borderRadius:180/2,
-    boxShadow:"inset 0 0 8px #0009",
-    display:"flex",flexWrap:"wrap",
-    justifyContent:"center",alignItems:"center",
-    gap:2,
-    padding:6,
+  tableInner: {
+    flex: 1, minHeight: 110,
+    background: "#10683e",
+    borderRadius: 180/2,
+    boxShadow: "inset 0 0 8px #0008",
+    display: "flex", flexWrap: "wrap",
+    gap: 2, justifyContent: "center", alignItems: "center",
+    padding: 6,
   },
-  dropLeft:{
-    width:28,height:90,border:"2px dashed #fff5",
-    borderRadius:6,marginRight:6,
-  },
-  dropRight:{
-    width:28,height:90,border:"2px dashed #fff5",
-    borderRadius:6,marginLeft:6,
+  drop: {
+    width: 26, height: 86,
+    border: "2px dashed #fff5",
+    borderRadius: 6,
+    margin: "0 4px",
   },
 
-  hand:{ display:"flex",flexWrap:"wrap",justifyContent:"center",gap:4,marginBottom:8 },
-  ai  :{ display:"flex",flexWrap:"wrap",justifyContent:"center",gap:4,opacity:.8 },
+  /* manos */
+  hand: { display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4 },
+  ai:   { display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4,
+          opacity: 0.8, marginTop: 8 },
 
-  tile:{
-    width:46,height:78,border:"2px solid #000",borderRadius:6,
-    display:"flex",flexDirection:"column",justifyContent:"space-between",
-    padding:3,background:"#fff",
+  /* ficha */
+  tile: {
+    width: 42, height: 70,
+    border: "2px solid #000", borderRadius: 5,
+    display: "flex", flexDirection: "column", justifyContent: "space-between",
+    padding: 3,
+    transition: "transform .2s",
+    userSelect: "none",
   },
-  face:{ flex:1,position:"relative" },
-  dot :{ position:"absolute",width:7,height:7,borderRadius:"50%",background:"#000",
-         transform:"translate(-50%,-50%)" },
-  div :{ height:1,background:"#000",width:"90%",margin:"1px auto" },
-  backLine:{ width:"100%",height:"100%",background:
-             "repeating-linear-gradient(45deg,#bbb 0 6px,#ccc 6px 12px)" },
+  div: { height: 1, background: "#000", width: "90%", margin: "1px auto" },
+  face: { flex: 1, position: "relative" },
+  dot:  { position: "absolute", width: 7, height: 7, background: "#000",
+          borderRadius: "50%", transform: "translate(-50%,-50%)" },
+  backLine: {
+    width: "100%", height: "100%",
+    background: "repeating-linear-gradient(45deg,#b3b3b3 0 6px,#c9c9c9 6px 12px)",
+    borderRadius: 4,
+  },
 
-  btn :{ background:"#0E7B47",border:"none",color:"#fff",padding:"8px 20px",
-         borderRadius:18,fontWeight:700,marginTop:10 },
-  link:{ color:"#facc15",textDecoration:"underline",marginTop:10 }
+  /* botones / links */
+  btn: { background: "#10683e", border: "none", color: "#fff",
+         padding: "8px 20px", borderRadius: 18, fontWeight: 700, marginTop: 12 },
+  link:{ color: "#facc15", textDecoration: "underline", marginTop: 12 },
 };
