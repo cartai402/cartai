@@ -1,260 +1,187 @@
-import { useEffect, useState } from "react";
-import { auth, db } from "../firebase";
-import {
-  ref,
-  onValue,
-  update,
-  remove,
-  push,
-  get,
-  set,
-} from "firebase/database";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from 'react';
+import { getDatabase, ref, onValue, remove, update } from 'firebase/database';
+import { getAuth } from 'firebase/auth';
 
-export default function Admin() {
-  const [usuario, setUsuario] = useState(null);
+/* Helpers */
+const COP = n => n?.toLocaleString('es-CO') ?? '0';
+
+export default function AdminPanel() {
+  const auth = getAuth();
+  const db = getDatabase();
   const [pagos, setPagos] = useState([]);
   const [retiros, setRetiros] = useState([]);
-  const [usuarios, setUsuarios] = useState({});
-  const [codigoPromo, setCodigoPromo] = useState("");
-  const [mensaje, setMensaje] = useState("");
-  const navigate = useNavigate();
+  const [stats, setStats] = useState({ totalUsuarios: 0, totalInvertido: 0 });
 
+  // Cargar pagos pendientes
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (!user || user.email !== "admincartai@cartai.com") {
-        navigate("/login");
-      } else {
-        setUsuario(user);
-      }
+    const refPagos = ref(db, 'pagosPendientes');
+    onValue(refPagos, snap => {
+      const val = snap.val() || {};
+      const lista = [];
+      Object.entries(val).forEach(([uid, userPagos]) => {
+        Object.values(userPagos).forEach(p => lista.push({ ...p, uid }));
+      });
+      setPagos(lista);
     });
-    return unsubscribe;
-  }, [navigate]);
+  }, []);
 
+  // Cargar retiros pendientes
   useEffect(() => {
-    if (!usuario) return;
-
-    const pagosRef = ref(db, "pagosPendientes");
-    onValue(pagosRef, (snap) => {
-      const datos = snap.val() || {};
-      const todos = [];
-
-      for (const uid in datos) {
-        for (const pagoId in datos[uid]) {
-          const p = datos[uid][pagoId];
-          todos.push({
-            uid,
-            pagoId,
-            paqueteNom: p.paquete?.nombre || "Sin nombre",
-            inversion: p.paquete?.inversion || 0,
-            referencia: p.referencia || "Sin ref.",
-            fecha: p.fecha || null,
-          });
-        }
-      }
-      setPagos(todos);
+    const refRetiros = ref(db, 'retirosPendientes');
+    onValue(refRetiros, snap => {
+      const val = snap.val() || {};
+      const lista = [];
+      Object.entries(val).forEach(([uid, userRetiros]) => {
+        Object.values(userRetiros).forEach(r => lista.push({ ...r, uid }));
+      });
+      setRetiros(lista);
     });
+  }, []);
 
-    const retirosRef = ref(db, "retirosPendientes");
-    onValue(retirosRef, (snap) => {
-      const datos = snap.val() || {};
-      const todos = [];
-
-      for (const uid in datos) {
-        for (const retiroId in datos[uid]) {
-          todos.push({ ...datos[uid][retiroId], uid, retiroId });
-        }
-      }
-      setRetiros(todos);
+  // Cargar estadísticas
+  useEffect(() => {
+    const refUsers = ref(db, 'usuarios');
+    onValue(refUsers, snap => {
+      const val = snap.val() || {};
+      const totalUsuarios = Object.keys(val).length;
+      let totalInvertido = 0;
+      Object.values(val).forEach(u => {
+        totalInvertido += u.invertido ?? 0;
+      });
+      setStats({ totalUsuarios, totalInvertido });
     });
+  }, []);
 
-    onValue(ref(db, "usuarios"), (snap) => {
-      setUsuarios(snap.val() || {});
-    });
-  }, [usuario]);
+  // Aprobar pago
+  const aprobarPago = async (pago) => {
+    const now = Date.now();
+    const userRef = ref(db, `usuarios/${pago.uid}`);
+    const userSnap = await onValueOnce(userRef);
+    const userData = userSnap.val() || {};
 
-  const aprobarPago = async (uid, pagoId, inversion, paqueteNom) => {
-    const userRef = ref(db, `usuarios/${uid}`);
-    const userSnap = await get(userRef);
-    const userData = userSnap.val();
+    const nuevoPaquete = {
+      paqueteId: pago.paqueteId,
+      paqueteNom: pago.paqueteNom,
+      invertido: pago.inversion,
+      ganDia: pago.ganDia ?? null,
+      pagoFinal: pago.pagoFinal ?? null,
+      tipo: pago.tipo,
+      durDias: pago.durDias,
+      diasRestantes: pago.durDias,
+      fechaAprob: now,
+      estado: 'activo'
+    };
 
-    const nuevoSaldo = (userData.saldoInversion || 0) + inversion;
+    const nuevoId = generateId();
 
+    // Actualizar datos del usuario
     await update(userRef, {
-      saldoInversion: nuevoSaldo,
+      [`paquetes/${nuevoId}`]: nuevoPaquete,
+      invertido: (userData.invertido ?? 0) + pago.inversion,
       paqueteActivo: true,
+      iaActiva: userData.iaActiva ?? true // activa IA si aún no tiene
     });
 
-    const historialRef = ref(db, `usuarios/${uid}/paquetes`);
-    await push(historialRef, {
-      nombre: paqueteNom,
-      inversion,
-      fecha: Date.now(),
-      estado: "activo",
+    // Eliminar el pago pendiente
+    await remove(ref(db, `pagosPendientes/${pago.uid}/${pago.pagoId}`));
+    alert('✅ Pago aprobado y paquete activado');
+  };
+
+  // Rechazar pago
+  const rechazarPago = async (pago) => {
+    await remove(ref(db, `pagosPendientes/${pago.uid}/${pago.pagoId}`));
+    alert('❌ Pago rechazado');
+  };
+
+  // Aprobar retiro
+  const aprobarRetiro = async (r) => {
+    await update(ref(db, `usuarios/${r.uid}/retiros/${r.retiroId}`), {
+      estado: 'aprobado',
+      fechaAprob: Date.now()
     });
-
-    await remove(ref(db, `pagosPendientes/${uid}/${pagoId}`));
-
-    setMensaje("✅ Pago aprobado, paquete activado y saldo sumado.");
+    await remove(ref(db, `retirosPendientes/${r.uid}/${r.retiroId}`));
+    alert('✅ Retiro aprobado');
   };
 
-  const rechazarPago = async (uid, pagoId) => {
-    await remove(ref(db, `pagosPendientes/${uid}/${pagoId}`));
-    setMensaje("❌ Pago rechazado.");
-  };
-
-  const aprobarRetiro = async (uid, retiroId, monto) => {
-    const userRef = ref(db, `usuarios/${uid}`);
-    const snap = await get(userRef);
-    const data = snap.val();
-    const nuevoSaldo = (data.saldoGanado || 0) - monto;
-
-    await update(userRef, { saldoGanado: nuevoSaldo });
-    await remove(ref(db, `retirosPendientes/${uid}/${retiroId}`));
-    setMensaje("✅ Retiro aprobado.");
-  };
-
-  const rechazarRetiro = async (uid, retiroId) => {
-    await remove(ref(db, `retirosPendientes/${uid}/${retiroId}`));
-    setMensaje("❌ Retiro rechazado.");
-  };
-
-  const crearCodigo = () => {
-    if (!codigoPromo.trim()) return;
-    const codigoRef = ref(db, `codigosPromocionales/${codigoPromo}`);
-    set(codigoRef, { activo: true });
-    setCodigoPromo("");
-    setMensaje("🎉 Código creado correctamente.");
+  // Rechazar retiro
+  const rechazarRetiro = async (r) => {
+    await update(ref(db, `usuarios/${r.uid}/retiros/${r.retiroId}`), {
+      estado: 'rechazado',
+      fechaAprob: Date.now()
+    });
+    await remove(ref(db, `retirosPendientes/${r.uid}/${r.retiroId}`));
+    alert('❌ Retiro rechazado');
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f766e] text-white p-6">
-      <div className="max-w-6xl mx-auto space-y-10">
-        <h1 className="text-3xl font-extrabold text-center tracking-tight">⚙️ Panel Administrativo CartAI</h1>
+    <div style={styles.bg}>
+      <h1 style={styles.title}>🛠 Panel de Administración</h1>
 
-        {mensaje && (
-          <div className="text-center bg-green-600/10 border border-green-400 text-green-300 font-medium py-2 rounded">
-            {mensaje}
-          </div>
-        )}
+      {/* Estadísticas */}
+      <section style={styles.section}>
+        <h2>📊 Estadísticas</h2>
+        <p>Usuarios registrados: <b>{stats.totalUsuarios}</b></p>
+        <p>Total invertido: <b>${COP(stats.totalInvertido)}</b></p>
+      </section>
 
-        {/* Estadísticas generales */}
-        <section className="grid sm:grid-cols-3 gap-6 text-center">
-          <div className="bg-white/10 p-5 rounded-xl border border-white/10 shadow-lg">
-            <p className="text-gray-300 text-sm">Usuarios registrados</p>
-            <h2 className="text-2xl font-bold">{Object.keys(usuarios).length}</h2>
-          </div>
-          <div className="bg-white/10 p-5 rounded-xl border border-white/10 shadow-lg">
-            <p className="text-gray-300 text-sm">Total inversión</p>
-            <h2 className="text-2xl font-bold text-green-400">
-              $
-              {Object.values(usuarios)
-                .reduce((a, b) => a + (b.saldoInversion || 0), 0)
-                .toLocaleString()}
-            </h2>
-          </div>
-          <div className="bg-white/10 p-5 rounded-xl border border-white/10 shadow-lg">
-            <p className="text-gray-300 text-sm">IA activas</p>
-            <h2 className="text-2xl font-bold text-yellow-400">
-              {
-                Object.values(usuarios).filter((u) => u.paqueteActivo === true)
-                  .length
-              }
-            </h2>
-          </div>
-        </section>
+      {/* Pagos pendientes */}
+      <section style={styles.section}>
+        <h2>💳 Pagos pendientes</h2>
+        {pagos.length === 0 ? <p>No hay pagos pendientes.</p> :
+          pagos.map(p => (
+            <div key={p.pagoId} style={styles.card}>
+              <p><b>{p.paqueteNom}</b> — ${COP(p.inversion)}</p>
+              <p>UID: <code>{p.uid}</code></p>
+              <p>Ref: {p.referencia ?? 'Sin referencia aún'}</p>
+              <button onClick={() => aprobarPago(p)} style={styles.btnGreen}>✅ Aprobar</button>
+              <button onClick={() => rechazarPago(p)} style={styles.btnRed}>❌ Rechazar</button>
+            </div>
+          ))}
+      </section>
 
-        {/* Pagos pendientes */}
-        <section>
-          <h2 className="text-xl font-bold mb-4">🧾 Pagos pendientes</h2>
-          {pagos.length === 0 ? (
-            <p className="text-gray-400">No hay pagos por aprobar.</p>
-          ) : (
-            pagos.map((p, i) => (
-              <div
-                key={i}
-                className="bg-white/5 p-4 rounded-lg mb-4 border border-white/10 shadow-md space-y-1"
-              >
-                <p><b>👤 Usuario:</b> {usuarios[p.uid]?.nombre || p.uid}</p>
-                <p><b>📦 Paquete:</b> {p.paqueteNom}</p>
-                <p><b>💰 Monto:</b> ${p.inversion.toLocaleString()}</p>
-                <p><b>🧾 Ref.:</b> {p.referencia}</p>
-                <div className="flex gap-3 mt-3">
-                  <button
-                    onClick={() =>
-                      aprobarPago(p.uid, p.pagoId, p.inversion, p.paqueteNom)
-                    }
-                    className="bg-green-600 hover:bg-green-700 px-4 py-1 rounded-md font-semibold"
-                  >
-                    ✅ Aprobar
-                  </button>
-                  <button
-                    onClick={() => rechazarPago(p.uid, p.pagoId)}
-                    className="bg-red-600 hover:bg-red-700 px-4 py-1 rounded-md font-semibold"
-                  >
-                    ❌ Rechazar
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </section>
-
-        {/* Retiros pendientes */}
-        <section>
-          <h2 className="text-xl font-bold mb-4">🏦 Retiros pendientes</h2>
-          {retiros.length === 0 ? (
-            <p className="text-gray-400">No hay retiros pendientes.</p>
-          ) : (
-            retiros.map((r, i) => (
-              <div
-                key={i}
-                className="bg-white/5 p-4 rounded-lg mb-4 border border-white/10 shadow-md space-y-1"
-              >
-                <p><b>👤 Usuario:</b> {usuarios[r.uid]?.nombre || r.uid}</p>
-                <p><b>💵 Monto:</b> ${r.monto.toLocaleString()}</p>
-                <p><b>📱 Cuenta:</b> {r.cuenta} ({r.tipo})</p>
-                <div className="flex gap-3 mt-3">
-                  <button
-                    onClick={() =>
-                      aprobarRetiro(r.uid, r.retiroId, r.monto)
-                    }
-                    className="bg-green-600 hover:bg-green-700 px-4 py-1 rounded-md font-semibold"
-                  >
-                    ✅ Aprobar
-                  </button>
-                  <button
-                    onClick={() => rechazarRetiro(r.uid, r.retiroId)}
-                    className="bg-red-600 hover:bg-red-700 px-4 py-1 rounded-md font-semibold"
-                  >
-                    ❌ Rechazar
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </section>
-
-        {/* Crear código promocional */}
-        <section className="space-y-3">
-          <h2 className="text-xl font-bold">🎁 Crear código promocional</h2>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Ej: BONO500"
-              value={codigoPromo}
-              onChange={(e) => setCodigoPromo(e.target.value.toUpperCase())}
-              className="bg-white/10 p-3 rounded-md w-full placeholder-white"
-            />
-            <button
-              onClick={crearCodigo}
-              className="bg-yellow-400 hover:bg-yellow-500 text-black px-4 py-2 rounded-md font-bold"
-            >
-              Crear
-            </button>
-          </div>
-        </section>
-      </div>
-    </main>
+      {/* Retiros pendientes */}
+      <section style={styles.section}>
+        <h2>💸 Retiros pendientes</h2>
+        {retiros.length === 0 ? <p>No hay retiros pendientes.</p> :
+          retiros.map(r => (
+            <div key={r.retiroId} style={styles.card}>
+              <p>Monto: <b>${COP(r.monto)}</b></p>
+              <p>UID: <code>{r.uid}</code></p>
+              <p>Cuenta: <b>{r.tipoCuenta}</b> → <code>{r.numero}</code></p>
+              <button onClick={() => aprobarRetiro(r)} style={styles.btnGreen}>✅ Aprobar</button>
+              <button onClick={() => rechazarRetiro(r)} style={styles.btnRed}>❌ Rechazar</button>
+            </div>
+          ))}
+      </section>
+    </div>
   );
 }
+
+/* ==== helpers ==== */
+const onValueOnce = (refPath) => new Promise(resolve => {
+  onValue(refPath, snap => resolve(snap), { onlyOnce: true });
+});
+
+const generateId = () => '_' + Math.random().toString(36).slice(2, 10);
+
+/* ==== estilos ==== */
+const styles = {
+  bg: { background: '#0a0f1e', color: 'white', padding: 20, minHeight: '100vh' },
+  title: { fontSize: 28, marginBottom: 20 },
+  section: { marginBottom: 40 },
+  card: {
+    background: '#1f2937',
+    padding: 16,
+    borderRadius: 14,
+    marginBottom: 14,
+    boxShadow: '0 4px 10px #0005'
+  },
+  btnGreen: {
+    background: '#4caf50', color: 'white', border: 'none',
+    padding: '8px 16px', borderRadius: 8, marginRight: 8, cursor: 'pointer'
+  },
+  btnRed: {
+    background: '#e53935', color: 'white', border: 'none',
+    padding: '8px 16px', borderRadius: 8, cursor: 'pointer'
+  }
+};
