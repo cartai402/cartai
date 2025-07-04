@@ -102,7 +102,6 @@ function PracticeDomino() {
   const [turno, setTurno] = useState("user");
   const [msg, setMsg] = useState("Tu turno");
 
-  /* reparte fichas */
   useEffect(() => {
     const pool = shuffle(fullSet());
     const user = pool.slice(0, 7);
@@ -137,7 +136,6 @@ function PracticeDomino() {
     setMsg("Turno IA");
   };
 
-  /* IA juega */
   useEffect(() => {
     if (turno !== "ai") return;
     const l = mesa[0][0],
@@ -174,245 +172,57 @@ function PracticeDomino() {
   );
 }
 
-/* ╔═══════════════════════════════╗
-   ║  MODO 2/3 ─ ONLINE (apuesta)  ║
-   ╚═══════════════════════════════╝ */
-function OnlineDomino({ apuesta, vsIA }) {
-  const navigate = useNavigate();
-  const [mesa, setMesa] = useState([]);
-  const [mano, setMano] = useState([]);
-  const [oponente, setOpp] = useState([]);
-  const [turno, setTurno] = useState("");
-  const [msg, setMsg] = useState("Buscando rival…");
-  const salaRef = useRef(null);
-  const uid = auth.currentUser?.uid;
-  const hostSide = useRef(""); // 'host' o 'player2'
-
-  /* emparejamiento */
-  useEffect(() => {
-    if (!uid) return navigate("/login");
-    const lobby = ref(db, "partidas");
-    onValue(lobby, (snap) => {
-      if (salaRef.current) return;
-      let joined = false;
-      snap.forEach((s) => {
-        const p = s.val();
-        if (
-          p.status === "waiting" &&
-          p.apuesta === apuesta &&
-          p.vsIA === vsIA &&
-          p.host !== uid
-        ) {
-          salaRef.current = ref(db, `partidas/${s.key}`);
-          joined = true;
-          hostSide.current = "player2";
-          update(salaRef.current, { player2: uid, status: "playing" });
-        }
-      });
-      if (!joined) {
-        const key = push(lobby).key;
-        salaRef.current = ref(db, `partidas/${key}`);
-        hostSide.current = "host";
-        set(salaRef.current, {
-          host: uid,
-          player2: vsIA ? "IA" : "",
-          status: vsIA ? "playing" : "waiting",
-          vsIA,
-          apuesta,
-          mesa: [],
-          turno: "host",
-        });
-        // descontar apuesta al crear sala
-        runTransaction(ref(db, `usuarios/${uid}/saldoJuego`), (v) =>
-          (v || 0) - apuesta
-        );
-      }
-    });
-  }, [uid]);
-
-  /* listener sala */
-  useEffect(() => {
-    if (!salaRef.current) return;
-    const unsub = onValue(salaRef.current, (snap) => {
-      const p = snap.val();
-      if (!p) return;
-      setMesa(p.mesa || []);
-      setTurno(p.turno);
-      setMsg(
-        p.status === "waiting"
-          ? "Esperando rival…"
-          : p.status === "finished"
-          ? p.winner === uid
-            ? "🎉 ¡Has ganado!"
-            : p.winner === "IA"
-            ? "IA ha ganado."
-            : "Perdiste…"
-          : ""
-      );
-      const myKey = hostSide.current;
-      const oppKey = myKey === "host" ? "player2" : "host";
-      setMano(p[`hand_${myKey}_${uid}`] || []);
-      setOpp(p[`hand_${oppKey}_${p[oppKey]}`] || []);
-      if (p.status === "playing" && !p[`hand_${myKey}_${uid}`]) deal(p);
-      if (p.status === "playing" && vsIA && p.turno === "IA") playIA(p);
-    });
-    return () => unsub();
-  }, []);
-
-  /* repartir */
-  const deal = (p) => {
-    const pool = shuffle(fullSet());
-    const h1 = pool.slice(0, 7),
-      h2 = pool.slice(7, 14),
-      stock = pool.slice(14);
-    const first = highestDouble(h1) || highestDouble(h2) || pool[0];
-    const mesaI = [first];
-    const turnoI = hostSide.current === "host" ? "player2" : "host";
-    update(salaRef.current, {
-      [`hand_host_${p.host}`]: h1,
-      [`hand_player2_${p.player2 || "IA"}`]: h2,
-      stock,
-      mesa: mesaI,
-      turno: turnoI,
-    });
-  };
-
-  /* IA en online */
-  const playIA = (p) => {
-    const handIA = p[`hand_player2_IA`];
-    const [l, r] = p.mesa.length ? [p.mesa[0][0], p.mesa.at(-1)[1]] : [null, null];
-    const play = pickAI(handIA, l, r);
-    if (play) {
-      const newMesa =
-        play.side === "left" ? [play.tile, ...p.mesa] : [...p.mesa, play.tile];
-      const newHand = handIA.filter((x) => x !== play.tile);
-      update(salaRef.current, {
-        mesa: newMesa,
-        [`hand_player2_IA`]: newHand,
-        turno: "host",
-      });
-      if (newHand.length === 0) finish("IA");
-    } else {
-      update(salaRef.current, { turno: "host" });
-    }
-  };
-
-  /* validar jugada */
-  const myTurn = () =>
-    turno === hostSide.current ||
-    (vsIA && hostSide.current === "host" && turno === "host");
-  const canPlay = (t) => {
-    if (mesa.length === 0) return true;
-    const l = mesa[0][0],
-      r = mesa.at(-1)[1];
-    return t[0] === l || t[1] === l || t[0] === r || t[1] === r;
-  };
-  const playUser = (tile, side = "right") => {
-    if (!myTurn() || !canPlay(tile)) return;
-    const newMesa =
-      side === "left" ? [tile, ...mesa] : [...mesa, tile];
-    const newHand = mano.filter((x) => x !== tile);
-    update(salaRef.current, {
-      mesa: newMesa,
-      [`hand_${hostSide.current}_${uid}`]: newHand,
-      turno: vsIA ? "IA" : hostSide.current === "host" ? "player2" : "host",
-    });
-    if (newHand.length === 0) finish(uid);
-  };
-
-  /* terminar partida */
-  const finish = (winner) => {
-    update(salaRef.current, {
-      status: "finished",
-      winner,
-    });
-    if (winner !== "IA") {
-      const premio = apuesta * 1.9;
-      runTransaction(ref(db, `usuarios/${winner}/saldoJuego`), (v) =>
-        (v || 0) + premio
-      );
-    }
-  };
-
-  return (
-    <Board
-      mesa={mesa}
-      mano={mano}
-      msg={msg}
-      turno={myTurn() ? "user" : "opp"}
-      puedeJugar={canPlay}
-      onPlay={playUser}
-      hideOpponent
-      opponentCount={oponente.length}
-    />
-  );
-}
-
-/* ╔══════════════════╗
-   ║  UI genérica     ║
-   ╚══════════════════╝ */
-function Board({
-  mesa,
-  mano,
-  msg,
-  turno,
-  puedeJugar,
-  onPlay,
-  hideOpponent,
-  opponentCount = 0,
-}) {
+/* ╔══════════════════════╗
+   ║  UI Compartida       ║
+   ╚══════════════════════╝ */
+function Board({ mesa, mano, msg, turno, puedeJugar, onPlay, hideOpponent, opponentCount = 0 }) {
   return (
     <main className="min-h-screen flex flex-col text-white bg-gradient-to-br from-[#141e30] to-[#243b55]">
-      <header className="p-3 text-center bg-black/40">
-        {msg || (turno === "user" ? "Tu turno" : "Turno rival")}
-      </header>
-
-      {/* mesa */}
+      <header className="p-3 text-center bg-black/40">{msg || (turno === "user" ? "Tu turno" : "Turno rival")}</header>
       <section className="flex-1 flex flex-wrap items-center justify-center gap-1 p-2">
-        {mesa.map((t, i) => (
-          <Tile key={i} v={t} />
-        ))}
+        {mesa.map((t, i) => <Tile key={i} v={t} />)}
         {mesa.length === 0 && <p className="text-gray-400">Empieza…</p>}
       </section>
-
-      {/* mano jugador */}
       <footer className="bg-black/60 p-2 flex flex-wrap justify-center gap-1">
         {mano.map((t, i) => (
-          <Tile
-            key={i}
-            v={t}
-            highlight={puedeJugar(t)}
-            onClick={() => onPlay(t)}
-            small
-          />
+          <Tile key={i} v={t} highlight={puedeJugar(t)} onClick={() => onPlay(t)} small />
         ))}
       </footer>
-
-      {/* oponente indicador */}
       {hideOpponent && (
-        <div className="text-center text-xs py-1 bg-black/50">
-          Fichas rival: {opponentCount}
-        </div>
+        <div className="text-center text-xs py-1 bg-black/50">Fichas rival: {opponentCount}</div>
       )}
-
       <div className="text-center text-sm bg-black/60 py-1">
-        <Link to="/dashboard" className="text-yellow-300 underline">
-          ← Volver al Dashboard
-        </Link>
+        <Link to="/dashboard" className="text-yellow-300 underline">← Volver al Dashboard</Link>
       </div>
     </main>
   );
 }
 
-/* ╔══════════════╗
-   ║  Wrapper     ║
-   ╚══════════════╝ */
+/* ╔══════════════════════════════════╗
+   ║  Pantalla de bienvenida moderna ║
+   ╚══════════════════════════════════╝ */
 export default function Game() {
+  const [modo, setModo] = useState(null);
   const [search] = useSearchParams();
-  const practica = search.get("practica") === "true";
-  const vsIA = search.get("vsIA") === "true";
   const apuesta = Number(search.get("apuesta") || 10000);
 
-  if (practica) return <PracticeDomino />;
-  return <OnlineDomino apuesta={apuesta} vsIA={vsIA} />;
+  if (modo === "practica") return <PracticeDomino />;
+  if (modo === "vsIA") return <OnlineDomino apuesta={apuesta} vsIA={true} />;
+  if (modo === "online") return <OnlineDomino apuesta={apuesta} vsIA={false} />;
+
+  return (
+    <main className="min-h-screen bg-gradient-to-br from-[#0f2027] via-[#203a43] to-[#2c5364] text-white flex flex-col items-center justify-center p-6">
+      <h1 className="text-4xl sm:text-5xl font-bold mb-4 drop-shadow-lg">🎲 Dominó CartAI</h1>
+      <p className="text-center max-w-md mb-10 text-gray-300 text-sm">
+        Bienvenido a Dominó CartAI. Elige un modo para comenzar a jugar. Puedes practicar, jugar con IA o con otro jugador. 
+      </p>
+
+      <div className="flex flex-col gap-4 w-full max-w-xs">
+        <button onClick={() => setModo("practica")} className="bg-yellow-500 hover:bg-yellow-600 py-3 rounded-md font-semibold shadow-md transition">🧠 Modo Práctica</button>
+        <button onClick={() => setModo("vsIA")} className="bg-green-500 hover:bg-green-600 py-3 rounded-md font-semibold shadow-md transition">🤖 Jugar contra IA</button>
+        <button onClick={() => setModo("online")} className="bg-blue-500 hover:bg-blue-600 py-3 rounded-md font-semibold shadow-md transition">🌐 Jugar contra otro jugador</button>
+        <Link to="/dashboard" className="text-sm text-gray-300 underline text-center mt-2">← Volver al Dashboard</Link>
+      </div>
+    </main>
+  );
 }
