@@ -1,232 +1,140 @@
-/************************************************************
- *  Dominó CartAI – clásico responsivo                      *
- *  · 7 fichas por jugador + banca                          *
- *  · IA sencilla + robo automático                         *
- *  · Mesa horizontal, fichas compactas                     *
- ***********************************************************/
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import clsx from "clsx";
+// src/pages/Game.jsx
+import { useState, useEffect } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
-/* ---------- utilidades ---------- */
 const fullSet = () => {
   const s = [];
   for (let i = 0; i <= 6; i++) for (let j = i; j <= 6; j++) s.push([i, j]);
   return s;
 };
-const shuffle = (a) => [...a].sort(() => Math.random() - 0.5);
-const highestDouble = (h) =>
-  h.filter((t) => t[0] === t[1]).sort((a, b) => b[0] - a[0])[0];
-const sumHand = (h) => h.reduce((t, [a, b]) => t + a + b, 0);
-const pickAI = (hand, l, r) => {
-  let best = null,
-    bestScore = Infinity,
-    bestSide = "";
-  hand.forEach((t) => {
-    const fitsL = l === null || t[0] === l || t[1] === l;
-    const fitsR = r === null || t[0] === r || t[1] === r;
-    if (fitsL || fitsR) {
-      const score = sumHand(hand.filter((x) => x !== t));
-      if (score < bestScore) {
-        bestScore = score;
-        best = t;
-        bestSide =
-          fitsL && !fitsR ? "left" : fitsR && !fitsL ? "right" : "either";
-      }
-    }
-  });
-  return { tile: best, side: bestSide };
-};
+const shuffle = (a) => a.sort(() => Math.random() - 0.5);
+const highestDouble = (h) => h.filter(([a, b]) => a === b).sort((a, b) => b[0] - a[0])[0];
 
-/* ---------- ficha SVG ---------- */
-const Tile = ({ v, onClick, small = false, highlight = false, rotated = false }) => (
-  <svg
+const Tile = ({ v, onClick, highlight }) => (
+  <div
+    className={`domino w-14 h-7 sm:w-16 sm:h-8 relative transform-gpu transition-transform 
+                ${highlight ? "scale-105 ring-4 ring-yellow-400" : ""}`}
     onClick={onClick}
-    viewBox="0 0 80 140"
-    className={clsx(
-      rotated ? "h-8 sm:h-10 w-auto" : small ? "h-10 sm:h-12 w-auto" : "h-16 sm:h-20 w-auto",
-      highlight && "ring-2 ring-yellow-400 rounded"
-    )}
-    style={rotated ? { transform: "rotate(90deg)" } : undefined}
+    style={{ '--val-top': `"${v[0]}"`, '--val-bot': `"${v[1]}"` }}
   >
-    <rect width="80" height="140" rx="10" fill="#fff" />
-    <line x1="5" y1="70" x2="75" y2="70" stroke="#777" strokeDasharray="4 4" />
-    <text x="40" y="50" textAnchor="middle" fontSize="42" fontFamily="monospace" fill="#222">
-      {v[0]}
-    </text>
-    <text x="40" y="120" textAnchor="middle" fontSize="42" fontFamily="monospace" fill="#222">
-      {v[1]}
-    </text>
-  </svg>
+    <div className="face front">
+      <span className="top">{v[0]}</span>
+      <span className="bot">{v[1]}</span>
+    </div>
+  </div>
 );
 
-/* ---------- tablero ---------- */
-const Board = ({
-  mesa,
-  mano,
-  stock,
-  msg,
-  onPlay,
-  canPlay,
-  oppCount,
-}) => (
-  <main className="min-h-screen flex flex-col bg-gradient-to-br from-slate-900 to-slate-800 text-white">
-    <header className="py-2 text-center bg-black/40 text-sm">{msg}</header>
-
-    {/* mesa horizontal con scroll */}
-    <section className="flex-1 overflow-x-auto flex items-center px-4 py-3">
-      <div className="flex gap-1 items-center">
-        {mesa.length === 0 && <p className="text-gray-300">Empieza…</p>}
-        {mesa.map((t, i) => (
-          <Tile key={i} v={t} rotated />
-        ))}
-      </div>
-    </section>
-
-    {/* info rival + banca */}
-    <div className="flex justify-between text-xs bg-black/50 px-4 py-1">
-      <span>IA: {oppCount}</span>
-      <span>Banca: {stock.length}</span>
-    </div>
-
-    {/* mano */}
-    <footer className="bg-black/60 p-2 flex flex-wrap justify-center gap-1">
-      {mano.map((t, i) => (
-        <Tile
-          key={i}
-          v={t}
-          small
-          highlight={canPlay(t)}
-          onClick={() => onPlay(t)}
-        />
-      ))}
-    </footer>
-
-    <div className="text-center text-xs py-2 bg-black/60">
-      <Link to="/dashboard" className="underline text-yellow-300">
-        ← Dashboard
-      </Link>
-    </div>
-  </main>
-);
-
-/* ---------- juego completo ---------- */
-export default function Game() {
+function PracticeDomino() {
   const [mesa, setMesa] = useState([]);
   const [mano, setMano] = useState([]);
-  const [ia, setIA] = useState([]);
-  const [stock, setStock] = useState([]);
-  const [turn, setTurn] = useState("user"); // 'user' | 'ai'
-  const [msg, setMsg] = useState("");
+  const [aiHand, setAI] = useState([]);
+  const [turno, setTurno] = useState("user");
+  const [msg, setMsg] = useState("Tu turno");
 
-  /* repartir */
   useEffect(() => {
     const pool = shuffle(fullSet());
-    setMano(pool.slice(0, 7));
-    setIA(pool.slice(7, 14));
-    setStock(pool.slice(14));
+    const uHand = pool.slice(0, 7);
+    const iaH = pool.slice(7, 14);
+    setMano(uHand);
+    setAI(iaH);
+    const start = highestDouble(uHand) || highestDouble(iaH) || uHand[0];
+    setMesa([start]);
+    if (iaH.includes(start)) {
+      setAI(iaH.filter((t) => t !== start));
+    } else {
+      setMano(uHand.filter((t) => t !== start));
+      setTurno("ai");
+      setMsg("IA juega primero");
+    }
   }, []);
 
-  /* decidir primera ficha */
-  useEffect(() => {
-    if (!mano.length || !ia.length || mesa.length) return;
-    const first = highestDouble(mano) || highestDouble(ia) || mano[0];
-    setMesa([first]);
-
-    if (mano.includes(first)) {
-      setMano((h) => h.filter((x) => x !== first));
-      setMsg("Tu turno");
-      setTurn("user");
-    } else {
-      setIA((h) => h.filter((x) => x !== first));
-      setMsg("IA jugó primero");
-      setTurn("user");
-    }
-  }, [mano, ia]);
-
-  const ends = mesa.length
-    ? { left: mesa[0][0], right: mesa.at(-1)[1] }
-    : { left: null, right: null };
-
-  const canPlay = (t) =>
-    ends.left === null ||
-    t.includes(ends.left) ||
-    t.includes(ends.right);
-
-  /* colocar ficha en mesa */
-  const placeTile = (tile, side, who) => {
-    const rotate = (v, ref) => (v[0] === ref ? v : [v[1], v[0]]);
-    setMesa((m) =>
-      side === "left"
-        ? [rotate(tile, ends.left), ...m]
-        : [...m, rotate(tile, ends.right)]
-    );
-    if (who === "user") {
-      setMano((h) => h.filter((x) => x !== tile));
-      setTurn("ai");
-      setMsg("Turno IA");
-    } else {
-      setIA((h) => h.filter((x) => x !== tile));
-      setTurn("user");
-      setMsg("Tu turno");
-    }
+  const puedeJugar = (ficha) => {
+    if (!mesa.length) return true;
+    const [l, r] = [mesa[0][0], mesa.at(-1)[1]];
+    return ficha.includes(l) || ficha.includes(r);
   };
 
-  /* acción jugador */
-  const onPlay = (tile) => {
-    if (turn !== "user" || !canPlay(tile)) return;
-    const fitsL = tile.includes(ends.left);
-    const fitsR = tile.includes(ends.right);
-    let side = "right";
-    if (fitsL && fitsR) {
-      side = window.confirm("¿Izquierda? (Aceptar = izq · Cancelar = der)")
-        ? "left"
-        : "right";
-    } else side = fitsL ? "left" : "right";
-    placeTile(tile, side, "user");
+  const colocarFicha = (ficha) => {
+    if (turno !== "user" || !puedeJugar(ficha)) return;
+    const [l, r] = [mesa[0][0], mesa.at(-1)[1]];
+    const invertir = (a) => [a[1], a[0]];
+    const sePuedeIzq = ficha[0] === l || ficha[1] === l;
+    const sePuedeDer = ficha[0] === r || ficha[1] === r;
+
+    if (sePuedeIzq) {
+      setMesa((m) => [ficha[1] === l ? ficha : invertir(ficha), ...m]);
+    } else {
+      setMesa((m) => [...m, ficha[0] === r ? ficha : invertir(ficha)]);
+    }
+
+    setMano((h) => h.filter((x) => x !== ficha));
+    setTurno("ia");
+    setMsg("Turno IA");
   };
 
-  /* IA */
   useEffect(() => {
-    if (turn !== "ai") return;
-    const { tile, side } = pickAI(ia, ends.left, ends.right);
-    if (tile) {
-      setTimeout(() => placeTile(tile, side === "either" ? "right" : side, "ia"), 600);
-    } else if (stock.length) {
-      // roba
-      setIA((h) => [...h, stock[0]]);
-      setStock((s) => s.slice(1));
-      setTurn("user");
-      setMsg("IA robó • Tu turno");
-    } else {
-      setTurn("user");
-      setMsg("IA pasa • Tu turno");
-    }
-  }, [turn, ia, stock, ends]);
+    if (turno !== "ia") return;
+    const [l, r] = [mesa[0][0], mesa.at(-1)[1]];
+    const jugada = aiHand.find((f) => f.includes(l) || f.includes(r));
 
-  /* robo automático jugador si no puede */
-  useEffect(() => {
-    if (turn !== "user") return;
-    if (mano.some(canPlay)) return;
-    if (stock.length) {
-      setMano((h) => [...h, stock[0]]);
-      setStock((s) => s.slice(1));
-      setMsg("Robaste 1 ficha");
+    if (jugada) {
+      setTimeout(() => {
+        const invertir = (a) => [a[1], a[0]];
+        const nueva = jugada[0] === r || jugada[1] === r ? jugada : invertir(jugada);
+        setMesa((m) => [...m, nueva]);
+        setAI((h) => h.filter((x) => x !== jugada));
+        setTurno("user");
+        setMsg("Tu turno");
+      }, 700);
     } else {
-      setMsg("No puedes jugar • pasas turno");
-      setTurn("ai");
+      setMsg("IA pasa turno");
+      setTurno("user");
     }
-  }, [turn, mano, stock]);
+  }, [turno]);
 
   return (
-    <Board
-      mesa={mesa}
-      mano={mano}
-      stock={stock}
-      msg={msg}
-      onPlay={onPlay}
-      canPlay={canPlay}
-      oppCount={ia.length}
-    />
+    <main className="min-h-screen flex flex-col bg-green-900 text-white">
+      <header className="text-center p-2 bg-black/50">{msg}</header>
+      <section className="flex-1 flex flex-wrap justify-center items-center gap-1 p-4 bg-[url('/fondoDomino.png')] bg-cover">
+        {mesa.map((f, i) => (
+          <Tile key={i} v={f} />
+        ))}
+      </section>
+      <footer className="bg-black/60 p-2 flex flex-wrap justify-center gap-2">
+        {mano.map((f, i) => (
+          <Tile key={i} v={f} highlight={puedeJugar(f)} onClick={() => colocarFicha(f)} />
+        ))}
+      </footer>
+    </main>
+  );
+}
+
+export default function Game() {
+  const [modo, setModo] = useState(null);
+  const [params] = useSearchParams();
+
+  if (modo === "practica") return <PracticeDomino />;
+
+  return (
+    <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[#0f2027] via-[#203a43] to-[#2c5364] text-white px-6">
+      <h1 className="text-4xl sm:text-5xl font-bold mb-4 drop-shadow-xl animate-pulse">
+        🎲 Dominó CartAI
+      </h1>
+      <p className="text-center text-gray-300 mb-6">
+        Elige un modo: práctica sin riesgo, IA o partida online. Móvil optimizado.
+      </p>
+
+      <div className="flex flex-col gap-4 w-full max-w-xs">
+        <button
+          onClick={() => setModo("practica")}
+          className="py-3 bg-yellow-500 hover:bg-yellow-600 rounded-lg font-semibold shadow-lg transition active:scale-95"
+        >
+          🧠 Modo práctica
+        </button>
+        <Link to="/dashboard" className="mt-3 text-sm text-gray-200 underline text-center">
+          ← Volver al Dashboard
+        </Link>
+      </div>
+    </main>
   );
 }
