@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ref, onValue, update, get, remove, set } from "firebase/database";
-import { getAuth } from "firebase/auth";
+import { getAuth, signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
 
@@ -93,13 +93,8 @@ export default function Admin() {
 
   const aprobarRetiro = async (r) => {
     const { uid, retiroId } = r;
-
-    // Marcar como aprobado en retiros/
     await update(ref(db, `retiros/${uid}/${retiroId}`), { estado: "aprobado" });
-
-    // Eliminar de pendientes
     await remove(ref(db, `retirosPendientes/${uid}/${retiroId}`));
-
     alert("✅ Retiro aprobado.");
   };
 
@@ -133,6 +128,13 @@ export default function Admin() {
   const copiarCodigo = () => {
     navigator.clipboard.writeText(ultimoCodigo);
     alert("📋 Código copiado al portapapeles.");
+  };
+
+  const cerrarSesion = async () => {
+    const salir = confirm("¿Seguro que deseas cerrar sesión?");
+    if (!salir) return;
+    await signOut(auth);
+    nav("/");
   };
 
   return (
@@ -199,6 +201,13 @@ export default function Admin() {
           </div>
         )}
       </Sec>
+
+      {/* BOTÓN CERRAR SESIÓN */}
+      <div style={{ textAlign: "center", marginTop: 60 }}>
+        <button onClick={cerrarSesion} style={st.logoutBtn}>
+          🚪 Cerrar sesión
+        </button>
+      </div>
     </div>
   );
 }
@@ -242,5 +251,16 @@ const st = {
   copyBtn: {
     padding: "10px 16px", borderRadius: 8, background: "#00bcd4",
     border: "none", color: "#fff", fontWeight: "bold", cursor: "pointer"
+  },
+  logoutBtn: {
+    background: "linear-gradient(90deg,#f87171,#ef4444)",
+    color: "#fff",
+    padding: "12px 30px",
+    borderRadius: 18,
+    fontWeight: "bold",
+    fontSize: "1rem",
+    boxShadow: "4px 4px 14px #000a",
+    transition: "transform 0.2s, box-shadow 0.2s",
+    cursor: "pointer",
   }
 };
