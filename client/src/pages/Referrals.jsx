@@ -1,225 +1,222 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "../firebase";
 import { ref, onValue, update, get } from "firebase/database";
+import { Link } from "react-router-dom";
+
+/* ───────── helpers ───────── */
+const generarCodigo = (uid) =>
+  uid.slice(0, 3).toUpperCase() + Math.floor(100 + Math.random() * 900);
 
 export default function Referrals() {
   const uid = auth.currentUser?.uid;
 
-  /* ───────── estados ───────── */
+  /* state */
   const [miCodigo, setMiCodigo] = useState("");
   const [referidos, setReferidos] = useState([]);
   const [copiado, setCopiado] = useState(false);
 
   const [redeemInput, setRedeemInput] = useState("");
-  const [redeemMsg, setRedeemMsg]   = useState("");
+  const [redeemMsg, setRedeemMsg] = useState("");
   const [yaTieneReferido, setYaTieneReferido] = useState(false);
 
-  // códigos promo
   const [promoInput, setPromoInput] = useState("");
   const [promoMsg, setPromoMsg] = useState("");
 
-  /* ───────── carga inicial ───────── */
+  /* ─── carga inicial ─── */
   useEffect(() => {
     if (!uid) return;
 
-    const thisUserRef = ref(db, `usuarios/${uid}`);
+    const usrRef = ref(db, `usuarios/${uid}`);
 
-    // Obtener/generar mi código y sabersi ya tengo referente
-    onValue(thisUserRef, snap => {
-      const data = snap.val() || {};
-      if (!data.codigoReferido) {
+    // mi código + saber si ya tengo referente
+    onValue(usrRef, snap => {
+      const d = snap.val() || {};
+      if (!d.codigoReferido) {
         const nuevo = generarCodigo(uid);
-        update(thisUserRef, { codigoReferido: nuevo });
+        update(usrRef, { codigoReferido: nuevo });
         setMiCodigo(nuevo);
-      } else {
-        setMiCodigo(data.codigoReferido);
-      }
-      if (data.referido) setYaTieneReferido(true);
+      } else setMiCodigo(d.codigoReferido);
+      if (d.referido) setYaTieneReferido(true);
     });
 
-    // cargar mis referidos
-    const allRef = ref(db, "usuarios");
-    onValue(allRef, snap => {
-      const users = snap.val() || {};
-      const lista = Object.values(users).filter(
-        u => u.referido === miCodigo
-      );
-      setReferidos(lista.reverse());
+    // mis referidos
+    onValue(ref(db, "usuarios"), snap => {
+      const all = snap.val() || {};
+      const list = Object.values(all).filter(u => u.referido === miCodigo);
+      setReferidos(list.reverse());
     });
   }, [uid, miCodigo]);
 
-  /* ───────── helpers ───────── */
-  const generarCodigo = (uid) =>
-    uid.slice(0, 3).toUpperCase() + Math.floor(100 + Math.random() * 900);
-
+  /* ─── UI helpers ─── */
   const copiarLink = () => {
     navigator.clipboard.writeText(
       `${window.location.origin}/register?ref=${miCodigo}`
     );
     setCopiado(true);
-    setTimeout(() => setCopiado(false), 2000);
+    setTimeout(() => setCopiado(false), 1800);
   };
 
-  /* ───────── redimir código de invitador ───────── */
+  /* ─── canje invitador ─── */
   const canjearReferido = async () => {
-    if (yaTieneReferido) {
-      setRedeemMsg("❌ Ya tienes un código asociado.");
-      return;
-    }
+    if (yaTieneReferido) return setRedeemMsg("❌ Ya tienes un invitador.");
     const code = redeemInput.trim().toUpperCase();
-    if (code.length < 4 || code === miCodigo) {
-      setRedeemMsg("❌ Código inválido.");
-      return;
-    }
+    if (code.length < 4 || code === miCodigo)
+      return setRedeemMsg("❌ Código inválido.");
 
     const allSnap = await get(ref(db, "usuarios"));
-    const allUsers = allSnap.val() || {};
-    const invitadorUID = Object.keys(allUsers).find(
-      k => allUsers[k].codigoReferido === code
+    const users = allSnap.val() || {};
+    const invitadorUID = Object.keys(users).find(
+      k => users[k].codigoReferido === code
     );
-    if (!invitadorUID) {
-      setRedeemMsg("❌ Código no encontrado.");
-      return;
-    }
+    if (!invitadorUID) return setRedeemMsg("❌ Código no existe.");
 
-    // dar bonos: 2 000 al invitado, 6 000 al invitador (si paquete activo)
+    // bonos
     await update(ref(db, `usuarios/${uid}`), {
       referido: code,
-      saldoBonos: (allUsers[uid]?.saldoBonos || 0) + 2000,
+      saldoBonos: (users[uid]?.saldoBonos || 0) + 2000,
     });
-    if (allUsers[invitadorUID]?.paqueteActivo) {
+    if (users[invitadorUID]?.paqueteActivo)
       await update(ref(db, `usuarios/${invitadorUID}`), {
-        saldoBonos: (allUsers[invitadorUID].saldoBonos || 0) + 6000,
+        saldoBonos: (users[invitadorUID].saldoBonos || 0) + 6000,
       });
-    }
 
     setYaTieneReferido(true);
-    setRedeemMsg("✅ Código redimido y bonos acreditados.");
+    setRedeemMsg("✅ ¡Código aplicado y bono acreditado!");
   };
 
-  /* ───────── redimir código PROMO ───────── */
+  /* ─── canje promo ─── */
   const canjearPromo = async () => {
     const code = promoInput.trim().toUpperCase();
-    if (code.length < 4) {
-      setPromoMsg("❌ Código inválido.");
-      return;
-    }
+    if (code.length < 4) return setPromoMsg("❌ Código inválido.");
 
-    const codeSnap = await get(ref(db, `codigos/${code}`));
-    if (!codeSnap.exists()) {
-      setPromoMsg("❌ Código no existe.");
-      return;
-    }
-    const datos = codeSnap.val();
-    if (datos.usado) {
-      setPromoMsg("❌ Código ya fue utilizado.");
-      return;
-    }
+    const snap = await get(ref(db, `promoCodes/${code}`));
+    if (!snap.exists()) return setPromoMsg("❌ No existe.");
+    const data = snap.val();
+    if (data.usado) return setPromoMsg("❌ Ya utilizado.");
 
-    // acreditar bono
-    await update(ref(db, `usuarios/${uid}`), {
-      saldoBonos: (datos.valor || 0) + (await (await get(ref(db, `usuarios/${uid}`))).val()).saldoBonos || 0,
-    });
-    // marcar usado
-    await update(ref(db, `codigos/${code}`), {
-      usado: true,
-      uid,
-    });
+    const usrSnap = await get(ref(db, `usuarios/${uid}`));
+    const saldo = usrSnap.val()?.saldoBonos || 0;
+    await update(ref(db, `usuarios/${uid}`), { saldoBonos: saldo + data.valor });
+    await update(ref(db, `promoCodes/${code}`), { usado: true, uid });
 
-    setPromoMsg(`✅ Bono de $${datos.valor.toLocaleString()} acreditado.`);
+    setPromoMsg(`✅ Bono $${data.valor.toLocaleString()} acreditado.`);
     setPromoInput("");
   };
 
-  /* ────────── UI ────────── */
+  /* ─── RENDER ─── */
   return (
-    <main className="min-h-screen bg-gradient-to-br from-[#141e30] to-[#243b55] text-white p-6">
-      <div className="max-w-3xl mx-auto space-y-10">
-        {/* ENCABEZADO */}
-        <header className="text-center space-y-2">
-          <h1 className="text-3xl font-bold">Programa de Referidos 📨</h1>
-          <p className="text-gray-300">
-            Comparte tu enlace, gana comisiones y canjea códigos promocionales.
-          </p>
+    <main style={st.bg}>
+      <div style={st.wrapper}>
+
+        {/* título */}
+        <header style={{ textAlign: "center" }}>
+          <h1 style={st.h1}>Programa de Referidos 📨</h1>
+          <p style={st.sub}>Comparte tu enlace y gana comisiones · Canjea códigos promocionales</p>
         </header>
 
-        {/* MI CÓDIGO */}
-        <section className="bg-white/10 p-6 rounded-xl border border-white/20 text-center space-y-4 shadow-lg">
-          <p>Tu código de referido:</p>
-          <h2 className="text-2xl font-bold text-yellow-300">{miCodigo}</h2>
-          <button
-            onClick={copiarLink}
-            className="bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-2 px-6 rounded-md"
-          >
+        {/* mi código */}
+        <Card>
+          <p>Tu código:</p>
+          <h2 style={st.code}>{miCodigo || "..."}</h2>
+          <button onClick={copiarLink} style={{ ...st.btn3d, ...st.btnGold }}>
             {copiado ? "✅ Copiado" : "📎 Copiar enlace"}
           </button>
-        </section>
+        </Card>
 
-        {/* REDIMIR CÓDIGO DE INVITACIÓN */}
+        {/* canjear invitador */}
         {!yaTieneReferido && (
-          <section className="bg-white/10 p-6 rounded-xl border border-white/20 space-y-4 shadow-lg">
-            <h3 className="text-xl font-semibold">Redimir código de invitación</h3>
+          <Card>
+            <h3 style={st.cardTitle}>Redimir código de invitador</h3>
             <input
+              style={st.input}
               value={redeemInput}
               onChange={e => setRedeemInput(e.target.value.toUpperCase())}
-              placeholder="Código de invitación"
-              className="w-full bg-white/20 p-3 rounded-lg uppercase"
+              placeholder="ABC123"
             />
-            {redeemMsg && <p className="text-sm">{redeemMsg}</p>}
-            <button
-              onClick={canjearReferido}
-              className="w-full bg-green-500 hover:bg-green-600 font-bold py-2 rounded-lg"
-            >
+            {redeemMsg && <p style={st.msg}>{redeemMsg}</p>}
+            <button onClick={canjearReferido} style={{ ...st.btn3d, ...st.btnCyan, width:"100%" }}>
               Redimir
             </button>
-          </section>
+          </Card>
         )}
 
-        {/* REDIMIR CÓDIGO PROMOCIONAL */}
-        <section className="bg-white/10 p-6 rounded-xl border border-white/20 space-y-4 shadow-lg">
-          <h3 className="text-xl font-semibold">Canjear código promocional</h3>
+        {/* canjear promo */}
+        <Card>
+          <h3 style={st.cardTitle}>Canjear código promocional</h3>
           <input
+            style={st.input}
             value={promoInput}
             onChange={e => setPromoInput(e.target.value.toUpperCase())}
-            placeholder="Código promo"
-            className="w-full bg-white/20 p-3 rounded-lg uppercase"
+            placeholder="PROMO2025"
           />
-          {promoMsg && <p className="text-sm">{promoMsg}</p>}
-          <button
-            onClick={canjearPromo}
-            className="w-full bg-purple-500 hover:bg-purple-600 font-bold py-2 rounded-lg"
-          >
+          {promoMsg && <p style={st.msg}>{promoMsg}</p>}
+          <button onClick={canjearPromo} style={{ ...st.btn3d, ...st.btnPurple, width:"100%" }}>
             Canjear
           </button>
-        </section>
+        </Card>
 
-        {/* LISTA DE REFERIDOS */}
-        <section className="space-y-4">
-          <h3 className="text-xl font-semibold">Tus referidos</h3>
+        {/* lista referidos */}
+        <section>
+          <h3 style={st.cardTitle}>Tus referidos</h3>
           {referidos.length === 0 ? (
-            <p className="text-gray-400">Aún sin referidos.</p>
+            <p style={{ opacity:.7 }}>Aún no tienes referidos.</p>
           ) : (
-            <ul className="space-y-3">
-              {referidos.map((r, i) => (
-                <li
-                  key={i}
-                  className="bg-white/10 border border-white/10 p-4 rounded-lg flex justify-between"
-                >
-                  <span className="font-bold">{r.nombre}</span>
-                  <span className="text-sm text-gray-400">
+            <div style={st.list}>
+              {referidos.map((r,i)=>(
+                <div key={i} style={st.listItem}>
+                  <span>{r.nombre}</span>
+                  <span style={{ fontSize:13 }}>
                     {r.paqueteActivo
-                      ? "🟢 Paquete activo"
+                      ? "🟢 Activo"
                       : r.iaActiva
                       ? "🟡 Solo IA"
                       : "🔴 Inactivo"}
                   </span>
-                </li>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
         </section>
+
+        {/* volver */}
+        <Link to="/dashboard" style={st.back}>← Volver</Link>
       </div>
     </main>
   );
 }
 
+/* ─── componentes auxiliares ─── */
+const Card = ({ children }) => (
+  <section style={st.card}>{children}</section>
+);
 
+/* ─── estilos inline ─── */
+const st = {
+  /* fondo animado tipo Home */
+  bg:{minHeight:"100vh",padding:"40px 20px",
+      background:"linear-gradient(135deg,#0f172a,#1e293b 40%,#065f46)",
+      backgroundSize:"600% 600%",animation:"floatBg 30s linear infinite",
+      color:"#fff",display:"flex",justifyContent:"center"},
+  wrapper:{width:"100%",maxWidth:800,display:"flex",flexDirection:"column",gap:40},
+  h1:{fontSize:"2rem",fontWeight:800,margin:0},
+  sub:{opacity:.85,maxWidth:520,margin:"8px auto 0"},
+  card:{backdropFilter:"blur(10px)",background:"rgba(255,255,255,.06)",
+        borderRadius:20,padding:30,boxShadow:"0 8px 18px #0007",width:"100%"},
+  cardTitle:{fontSize:20,fontWeight:700,marginBottom:16,textAlign:"center"},
+  code:{fontSize:"1.8rem",fontWeight:800,color:"#facc15",margin:"8px 0 20px"},
+  input:{width:"100%",padding:"12px 16px",borderRadius:14,border:"none",
+         background:"rgba(255,255,255,.12)",color:"#fff",marginBottom:12,
+         textTransform:"uppercase",fontWeight:600,letterSpacing:1},
+  msg:{fontSize:14,margin:"4px 0 10px"},
+  list:{display:"flex",flexDirection:"column",gap:10},
+  listItem:{display:"flex",justifyContent:"space-between",
+            background:"rgba(0,0,0,.2)",padding:"12px 16px",borderRadius:12},
+  back:{marginTop:10,textDecoration:"underline",color:"#facc15",textAlign:"center"},
+
+  /* botones 3-D */
+  btn3d:{padding:"12px 24px",borderRadius:16,fontWeight:700,boxShadow:"4px 4px 14px #000a",
+         transition:"transform .2s,box-shadow .2s"},
+  btnGold:{background:"linear-gradient(90deg,#facc15,#eab308)",color:"#000"},
+  btnCyan:{background:"linear-gradient(90deg,#38bdf8,#0ea5e9)",color:"#fff"},
+  btnPurple:{background:"linear-gradient(90deg,#a855f7,#7e22ce)",color:"#fff"}
+};
