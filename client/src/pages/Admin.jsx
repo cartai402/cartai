@@ -1,122 +1,208 @@
 import React, { useEffect, useState } from "react";
 import { ref, onValue, update, get, remove } from "firebase/database";
-import { db, auth } from "../firebase";
 import { getAuth } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
+import { db } from "../firebase";
 
-/* ========== helpers ========== */
+/* ==== Helpers ==== */
 const COP = (n) => n?.toLocaleString("es-CO") ?? "0";
+const formatFecha = (ms) => new Date(ms).toLocaleString("es-CO");
 
-/* ========== Panel Admin ========== */
 export default function AdminPanel() {
   const [pagos, setPagos] = useState([]);
+  const [retiros, setRetiros] = useState([]);
+  const [nombres, setNombres] = useState({});
   const navigate = useNavigate();
-  const user = getAuth().currentUser;
+  const auth = getAuth();
+  const user = auth.currentUser;
 
-  // Redirigir si no es admin
   useEffect(() => {
     if (!user || user.email !== "admincartai@cartai.com") {
       navigate("/dashboard");
     }
   }, [user]);
 
-  // Cargar pagos pendientes
+  // Cargar nombres + pagos + retiros
   useEffect(() => {
-    const refPagos = ref(db, "pagosPendientes");
-    onValue(refPagos, (snap) => {
-      const data = snap.val();
-      if (!data) {
-        setPagos([]);
-        return;
+    const pagosRef = ref(db, "pagosPendientes");
+    const retirosRef = ref(db, "retirosPendientes");
+
+    // PAGOS
+    onValue(pagosRef, async (snap) => {
+      const data = snap.val() || {};
+      const lista = [];
+      const nuevosNombres = {};
+
+      for (const [uid, pagosUsuario] of Object.entries(data)) {
+        const nomSnap = await get(ref(db, `usuarios/${uid}/nombre`));
+        nuevosNombres[uid] = nomSnap.exists() ? nomSnap.val() : "Usuario";
+        for (const [id, pago] of Object.entries(pagosUsuario)) {
+          lista.push({ ...pago, uid });
+        }
       }
 
-      const lista = [];
-      Object.entries(data).forEach(([uid, pagosUsuario]) => {
-        Object.entries(pagosUsuario).forEach(([pagoId, info]) => {
-          lista.push({ ...info, uid });
-        });
-      });
       setPagos(lista);
+      setNombres((prev) => ({ ...prev, ...nuevosNombres }));
+    });
+
+    // RETIROS
+    onValue(retirosRef, async (snap) => {
+      const data = snap.val() || {};
+      const lista = [];
+      const nuevosNombres = {};
+
+      for (const [uid, retirosUsuario] of Object.entries(data)) {
+        const nomSnap = await get(ref(db, `usuarios/${uid}/nombre`));
+        nuevosNombres[uid] = nomSnap.exists() ? nomSnap.val() : "Usuario";
+        for (const [id, retiro] of Object.entries(retirosUsuario)) {
+          lista.push({ ...retiro, uid, retiroId: id });
+        }
+      }
+
+      setRetiros(lista);
+      setNombres((prev) => ({ ...prev, ...nuevosNombres }));
     });
   }, []);
 
-  /* ========== Aprobar pago ========== */
-  const aprobarPago = async (pago) => {
-    const userRef = ref(db, `usuarios/${pago.uid}`);
-    const userSnap = await get(userRef);
-    const userData = userSnap.val() || {};
+  // Aprobar pago
+  const aprobarPago = async (p) => {
+    const { uid, pagoId, paqueteId, paqueteNom, invertido, ganDia, pagoFinal, durDias, tipo } = p;
 
-    const paqueteId = `p-${Date.now()}`;
+    // Sumar inversión total
+    const userRef = ref(db, `usuarios/${uid}`);
+    const snap = await get(userRef);
+    const data = snap.val();
+    const actual = data?.invertido ?? 0;
+
+    // Añadir paquete
+    const newPack = {
+      id: paqueteId,
+      nombre: paqueteNom,
+      valor: invertido,
+      ganDia: ganDia ?? null,
+      pagoFinal: pagoFinal ?? null,
+      dur: durDias,
+      tipo,
+      fecha: Date.now()
+    };
 
     await update(userRef, {
-      invertido: (userData.invertido ?? 0) + pago.invertido,
-      [`paquetes/${paqueteId}`]: {
-        id: pago.paqueteId,
-        nombre: pago.paqueteNom,
-        valor: pago.invertido,
-        fecha: new Date().toISOString(),
-        tipo: pago.tipo,
-        duracion: pago.durDias,
-      },
+      invertido: actual + invertido,
+      [`paquetes/${pagoId}`]: newPack,
     });
 
-    await remove(ref(db, `pagosPendientes/${pago.uid}/${pago.pagoId}`));
-    alert("✅ Pago aprobado y paquete activado");
+    await remove(ref(db, `pagosPendientes/${uid}/${pagoId}`));
+    alert("✅ Paquete aprobado y saldo actualizado.");
   };
 
-  /* ========== Render ========== */
+  // Aprobar retiro
+  const aprobarRetiro = async (r) => {
+    const { uid, monto, retiroId } = r;
+
+    const userRef = ref(db, `usuarios/${uid}`);
+    const snap = await get(userRef);
+    const saldo = snap.val()?.saldo ?? 0;
+
+    if (saldo < monto) {
+      alert("❌ Saldo insuficiente para este retiro.");
+      return;
+    }
+
+    await update(userRef, {
+      saldo: saldo - monto,
+    });
+
+    await remove(ref(db, `retirosPendientes/${uid}/${retiroId}`));
+    alert("✅ Retiro aprobado y saldo descontado.");
+  };
+
+  // Rechazar retiro o pago
+  const rechazar = async (uid, id, tipo) => {
+    await remove(ref(db, `${tipo}/${uid}/${id}`));
+    alert("🚫 Solicitud eliminada.");
+  };
+
+  /* ========== UI ========== */
   return (
     <div style={styles.bg}>
-      <h1 style={styles.title}>📋 Panel de Administración</h1>
-      {pagos.length === 0 ? (
-        <p style={styles.empty}>No hay pagos pendientes</p>
-      ) : (
-        pagos.map((pago, i) => (
-          <div key={i} style={styles.card}>
-            <h3>{pago.paqueteNom}</h3>
-            <p><b>💰 Inversión:</b> ${COP(pago.invertido)}</p>
-            <p><b>📌 UID:</b> {pago.uid}</p>
-            {pago.referencia && <p><b>🔖 Ref:</b> {pago.referencia}</p>}
-            <button onClick={() => aprobarPago(pago)} style={styles.btn}>✅ Aprobar</button>
-          </div>
-        ))
-      )}
+      <h1 style={styles.h1}>🛠️ Panel de Administración</h1>
+
+      {/* PAGOS */}
+      <section style={styles.section}>
+        <h2 style={styles.h2}>📩 Pagos pendientes</h2>
+        {pagos.length === 0 ? (
+          <p style={styles.empty}>No hay pagos pendientes.</p>
+        ) : (
+          pagos.map((p, i) => (
+            <div key={i} style={styles.card}>
+              <p><b>Usuario:</b> {nombres[p.uid]}</p>
+              <p><b>Paquete:</b> {p.paqueteNom}</p>
+              <p><b>Inversión:</b> ${COP(p.invertido)}</p>
+              <p><b>Referencia:</b> {p.referencia}</p>
+              <div style={styles.btnRow}>
+                <button onClick={() => aprobarPago(p)} style={styles.btnA}>Aprobar</button>
+                <button onClick={() => rechazar(p.uid, p.pagoId, "pagosPendientes")} style={styles.btnR}>Rechazar</button>
+              </div>
+            </div>
+          ))
+        )}
+      </section>
+
+      {/* RETIROS */}
+      <section style={styles.section}>
+        <h2 style={styles.h2}>💸 Retiros pendientes</h2>
+        {retiros.length === 0 ? (
+          <p style={styles.empty}>No hay retiros pendientes.</p>
+        ) : (
+          retiros.map((r, i) => (
+            <div key={i} style={styles.card}>
+              <p><b>Usuario:</b> {nombres[r.uid]}</p>
+              <p><b>Monto:</b> ${COP(r.monto)}</p>
+              <p><b>Cuenta:</b> {r.tipoCuenta} – {r.numeroCuenta}</p>
+              <p><b>Fecha:</b> {formatFecha(r.fecha)}</p>
+              <div style={styles.btnRow}>
+                <button onClick={() => aprobarRetiro(r)} style={styles.btnA}>Aprobar</button>
+                <button onClick={() => rechazar(r.uid, r.retiroId, "retirosPendientes")} style={styles.btnR}>Rechazar</button>
+              </div>
+            </div>
+          ))
+        )}
+      </section>
     </div>
   );
 }
 
-/* ========== estilos ========== */
+/* ========== Estilos ========== */
 const styles = {
-  bg: {
-    background: "#0a0f1e",
-    minHeight: "100vh",
-    color: "white",
-    padding: 20,
-    fontFamily: "sans-serif",
-  },
-  title: {
-    fontSize: 28,
-    marginBottom: 30,
-  },
-  empty: {
-    opacity: 0.7,
-  },
+  bg: { background: "#0a0f1e", minHeight: "100vh", padding: 20, color: "white" },
+  h1: { fontSize: 28, marginBottom: 20 },
+  h2: { fontSize: 22, borderBottom: "1px solid #444", paddingBottom: 6, marginBottom: 10 },
+  section: { marginBottom: 40 },
+  empty: { opacity: 0.6, fontStyle: "italic" },
   card: {
-    background: "#1c2333",
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    boxShadow: "4px 4px 12px #0006",
+    background: "#1e293b",
+    padding: 16,
+    borderRadius: 14,
+    marginBottom: 16,
+    boxShadow: "4px 4px 10px #0008",
   },
-  btn: {
-    background: "#00c853",
-    color: "#fff",
+  btnRow: { display: "flex", gap: 10, marginTop: 12 },
+  btnA: {
+    background: "#4caf50",
     border: "none",
-    padding: "10px 16px",
-    borderRadius: 10,
-    cursor: "pointer",
-    marginTop: 12,
+    padding: "8px 16px",
+    borderRadius: 8,
+    color: "white",
     fontWeight: "bold",
-    boxShadow: "2px 2px 8px #000a",
+    cursor: "pointer",
+  },
+  btnR: {
+    background: "#e53935",
+    border: "none",
+    padding: "8px 16px",
+    borderRadius: 8,
+    color: "white",
+    fontWeight: "bold",
+    cursor: "pointer",
   },
 };
