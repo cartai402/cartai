@@ -133,7 +133,7 @@ export default function Referrals() {
             <button onClick={copiar} style={styles.btn}>
               {copiado ? "✅ Copiado" : "📋 Copiar enlace"}
             </button>
-            <a href={`https://wa.me/?text=${encodeURIComponent("Recibe $2 000 COP al registrarte 👉 " + linkFull)}`}
+            <a href={`https://wa.me/?text=${encodeURIComponent("¡Únete a CartAI! 🚀 Recibe $2 000 COP al registrarte 👉 " + linkFull)}`}
                target="_blank" rel="noreferrer" style={styles.btn}>🟢 WhatsApp</a>
             <a href={`https://t.me/share/url?url=${encodeURIComponent(linkFull)}&text=${encodeURIComponent("Recibe $2 000 COP al registrarte")}`}
                target="_blank" rel="noreferrer" style={styles.btn}>🔵 Telegram</a>
