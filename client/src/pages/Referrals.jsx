@@ -10,6 +10,7 @@ export default function Referrals() {
   const [redeemInput, setRedeemInput] = useState("");
   const [redeemMsg, setRedeemMsg] = useState("");
   const [yaTieneReferido, setYaTieneReferido] = useState(false);
+  const [invitador, setInvitador] = useState(null);
   const [promoInput, setPromoInput] = useState("");
   const [promoMsg, setPromoMsg] = useState("");
 
@@ -19,15 +20,28 @@ export default function Referrals() {
     if (!uid) return;
     const thisUserRef = ref(db, `usuarios/${uid}`);
 
-    onValue(thisUserRef, snap => {
+    onValue(thisUserRef, async (snap) => {
       const data = snap.val() || {};
       if (!data.codigoReferido) {
         const nuevo = generarCodigo(uid);
         update(thisUserRef, { codigoReferido: nuevo });
         setMiCodigo(nuevo);
-      } else setMiCodigo(data.codigoReferido);
+      } else {
+        setMiCodigo(data.codigoReferido);
+      }
 
-      if (data.referido) setYaTieneReferido(true);
+      if (data.referido) {
+        setYaTieneReferido(true);
+        // Obtener nombre del invitador
+        const allSnap = await get(ref(db, "usuarios"));
+        const allUsers = allSnap.val() || {};
+        const invitador = Object.values(allUsers).find(
+          (u) => u.codigoReferido === data.referido
+        );
+        if (invitador) {
+          setInvitador(invitador.nombre || "Usuario");
+        }
+      }
     });
 
     const allRef = ref(db, "usuarios");
@@ -72,6 +86,7 @@ export default function Referrals() {
       referido: code,
       saldoBonos: (allUsers[uid]?.saldoBonos || 0) + 2000,
     });
+
     if (allUsers[invitadorUID]?.paqueteActivo) {
       await update(ref(db, `usuarios/${invitadorUID}`), {
         saldoBonos: (allUsers[invitadorUID].saldoBonos || 0) + 6000,
@@ -123,9 +138,17 @@ export default function Referrals() {
 
   return (
     <main style={styles.bg}>
-      <h1 style={styles.h1}>🎁 Referidos y Códigos Promocionales</h1>
+      <h1 style={styles.h1}>🎁 Canjea e Invita</h1>
 
-      {/* Código */}
+      {/* Invitador */}
+      {invitador && (
+        <section style={styles.card}>
+          <h3 style={styles.cardTitle}>Fuiste invitado por:</h3>
+          <p style={{ fontWeight: "bold", color: "#facc15", fontSize: 18 }}>{invitador}</p>
+        </section>
+      )}
+
+      {/* Código propio */}
       <section style={styles.card}>
         <p>Tu código:</p>
         <h2 style={styles.code}>{miCodigo}</h2>
@@ -135,7 +158,7 @@ export default function Referrals() {
         {compartirBtns}
       </section>
 
-      {/* Canjear Referido */}
+      {/* Canjear referido */}
       {!yaTieneReferido && (
         <section style={styles.card}>
           <h3 style={styles.cardTitle}>Canjear código de invitación</h3>
