@@ -1,244 +1,220 @@
-import { useEffect, useState } from "react";
-import { auth, db } from "../firebase";
-import { ref, onValue, update, get } from "firebase/database";
+// Referrals.jsx
+import React, { useEffect, useState } from "react";
+import { getDatabase, ref, onValue, update, get } from "firebase/database";
+import { getAuth } from "firebase/auth";
 
 export default function Referrals() {
-  const uid = auth.currentUser?.uid;
+  const db   = getDatabase();
+  const uid  = getAuth().currentUser?.uid;
 
-  /* ───── estados ───── */
-  const [miCodigo, setMiCodigo] = useState("");
-  const [referidos, setReferidos] = useState([]);
-  const [copiado, setCopiado] = useState(false);
+  const [miCodigo,   setMiCodigo]   = useState("");
+  const [linkFull,   setLinkFull]   = useState("");
+  const [referidos,  setReferidos]  = useState([]);
+  const [copiado,    setCopiado]    = useState(false);
 
-  const [redeemInput, setRedeemInput] = useState("");
-  const [redeemMsg, setRedeemMsg]   = useState("");
-  const [yaTieneReferido, setYaTieneReferido] = useState(false);
-  const [invitador, setInvitador] = useState(null);          // 👈 nuevo
+  const [yaTieneRef,     setYaTieneRef] = useState(false);
+  const [miInvitador,    setMiInvitador]= useState(null);
+  const [redeemInput,    setRedeemInput]= useState("");
+  const [redeemMsg,      setRedeemMsg]  = useState("");
 
   const [promoInput, setPromoInput] = useState("");
-  const [promoMsg, setPromoMsg] = useState("");
+  const [promoMsg,   setPromoMsg]   = useState("");
 
-  const link = `${window.location.origin}/register?ref=${miCodigo}`;
+  const COP = n => n?.toLocaleString("es-CO") ?? "0";
+  const genCode = id => id.slice(0,3).toUpperCase()+Math.floor(100+Math.random()*900);
 
-  /* ───── carga inicial ───── */
-  useEffect(() => {
-    if (!uid) return;
+  useEffect(()=>{
+    if(!uid) return;
+    const uRef = ref(db,`usuarios/${uid}`);
 
-    const thisUserRef = ref(db, `usuarios/${uid}`);
-
-    onValue(thisUserRef, async snap => {
-      const data = snap.val() || {};
-
-      /* generar ó leer mi código */
-      if (!data.codigoReferido) {
-        const nuevo = generarCodigo(uid);
-        update(thisUserRef, { codigoReferido: nuevo });
+    onValue(uRef, snap=>{
+      const d=snap.val()||{};
+      if(!d.codigoReferido){
+        const nuevo=genCode(uid);
+        update(uRef,{codigoReferido:nuevo});
         setMiCodigo(nuevo);
-      } else {
-        setMiCodigo(data.codigoReferido);
-      }
+      }else setMiCodigo(d.codigoReferido);
 
-      /* si ya fui invitado */
-      if (data.referido) {
-        setYaTieneReferido(true);
-        // buscar nombre del invitador
-        const allSnap = await get(ref(db, "usuarios"));
-        const allUsers = allSnap.val() || {};
-        const invit = Object.values(allUsers).find(u => u.codigoReferido === data.referido);
-        if (invit) setInvitador(invit.nombre || "Usuario");
+      if(d.referido){
+        setYaTieneRef(true);
+        get(ref(db,"usuarios")).then(s=>{
+          const all=s.val()||{};
+          const invKey = Object.keys(all).find(k=>all[k].codigoReferido===d.referido);
+          if(invKey) setMiInvitador(all[invKey].nombre ?? "(sin nombre)");
+        });
       }
+      setLinkFull(`${window.location.origin}/register?ref=${d.codigoReferido ?? ""}`);
     });
 
-    /* cargar mis referidos */
-    const allRef = ref(db, "usuarios");
-    onValue(allRef, snap => {
-      const users = snap.val() || {};
-      const lista = Object.values(users).filter(u => u.referido === miCodigo);
+    const allRef = ref(db,"usuarios");
+    onValue(allRef, snap=>{
+      const users=snap.val()||{};
+      const lista = Object.values(users).filter(u=>u.referido===miCodigo);
       setReferidos(lista.reverse());
     });
-  }, [uid, miCodigo]);
+  },[uid, miCodigo]);
 
-  /* ───── helpers ───── */
-  const generarCodigo = uid => uid.slice(0,3).toUpperCase()+Math.floor(100+Math.random()*900);
-
-  const copiarLink = () => {
-    navigator.clipboard.writeText(link);
+  const copiar = ()=>{
+    navigator.clipboard.writeText(linkFull);
     setCopiado(true);
-    setTimeout(() => setCopiado(false), 2000);
+    setTimeout(()=>setCopiado(false),2000);
   };
 
-  /* ---- canjear invitación ---- */
-  const canjearReferido = async () => {
-    if (yaTieneReferido)    return setRedeemMsg("❌ Ya tienes un código asociado.");
+  const canjearInvitador = async ()=>{
+    if(yaTieneRef) return;
     const code = redeemInput.trim().toUpperCase();
-    if (code.length<4 || code===miCodigo) return setRedeemMsg("❌ Código inválido.");
+    if(code.length<4 || code===miCodigo) return setRedeemMsg("❌ Código inválido.");
 
     const allSnap = await get(ref(db,"usuarios"));
-    const allUsers = allSnap.val()||{};
-    const invitUID = Object.keys(allUsers).find(k=>allUsers[k].codigoReferido===code);
-    if (!invitUID) return setRedeemMsg("❌ Código no encontrado.");
+    const all     = allSnap.val()||{};
+    const inviter = Object.keys(all).find(k=>all[k].codigoReferido===code);
+    if(!inviter)  return setRedeemMsg("❌ No encontrado.");
 
-    /* acreditar bonos */
     await update(ref(db,`usuarios/${uid}`),{
-      referido:code,
-      saldoBonos:(allUsers[uid]?.saldoBonos||0)+2000
+      referido: code,
+      saldoBonos: (all[uid]?.saldoBonos||0)+2000
     });
-    if (allUsers[invitUID]?.paqueteActivo){
-      await update(ref(db,`usuarios/${invitUID}`),{
-        saldoBonos:(allUsers[invitUID].saldoBonos||0)+6000
+    if(all[inviter]?.paquetes)
+      await update(ref(db,`usuarios/${inviter}`),{
+        saldoBonos:(all[inviter].saldoBonos||0)+6000
       });
-    }
 
-    setYaTieneReferido(true);
-    setInvitador(allUsers[invitUID]?.nombre||"Usuario");
-    setRedeemMsg("✅ Código redimido y bonos acreditados.");
+    setYaTieneRef(true);
+    setMiInvitador(all[inviter].nombre ?? "(sin nombre)");
+    setRedeemMsg("✅ Bonos acreditados.");
   };
 
-  /* ---- canjear PROMO ---- */
-  const canjearPromo = async () => {
-    const code = promoInput.trim().toUpperCase();
-    if (code.length<4) return setPromoMsg("❌ Código inválido.");
+  const canjearPromo = async ()=>{
+    const code=promoInput.trim().toUpperCase();
+    if(code.length<4) return setPromoMsg("❌ Código inválido.");
+    const snap = await get(ref(db,`promoCodes/${code}`));
+    if(!snap.exists()) return setPromoMsg("❌ No existe.");
+    const d = snap.val();
+    if(d.usado)  return setPromoMsg("❌ Ya usado.");
+    if(d.expira < Date.now()) return setPromoMsg("❌ Expirado.");
 
-    const snap = await get(ref(db,`codigos/${code}`));
-    if (!snap.exists())      return setPromoMsg("❌ Código no existe.");
+    const bonoAct = (await get(ref(db,`usuarios/${uid}/saldoBonos`))).val()||0;
+    await update(ref(db,`usuarios/${uid}`),{ saldoBonos: bonoAct + (d.valor||0)});
+    await update(ref(db,`promoCodes/${code}`),{ usado:true, uid });
 
-    const datos = snap.val();
-    if (datos.usado)         return setPromoMsg("❌ Código ya fue utilizado.");
-
-    const userSnap = await get(ref(db,`usuarios/${uid}`));
-    const nuevoSaldo = (datos.valor||0)+((userSnap.val()||{}).saldoBonos||0);
-
-    await update(ref(db,`usuarios/${uid}`),{saldoBonos:nuevoSaldo});
-    await update(ref(db,`codigos/${code}`),{usado:true,uid});
-
-    setPromoMsg(`✅ Bono de $${datos.valor.toLocaleString()} acreditado.`);
+    setPromoMsg(`✅ Bono de $${COP(d.valor)} acreditado`);
     setPromoInput("");
   };
 
-  /* ---- botones compartir ---- */
-  const share = (
-    <div style={styles.shareWrap}>
-      <a href={`https://wa.me/?text=${encodeURIComponent(link)}`} target="_blank" rel="noopener noreferrer" style={styles.shareBtn}>🟢 WhatsApp</a>
-      <a href={`https://t.me/share/url?url=${encodeURIComponent(link)}`} target="_blank" rel="noopener noreferrer" style={styles.shareBtn}>🔵 Telegram</a>
-      <a href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`} target="_blank" rel="noopener noreferrer" style={styles.shareBtn}>🔵 Facebook</a>
-      <a href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(link)}`} target="_blank" rel="noopener noreferrer" style={styles.shareBtn}>⚫ X</a>
-    </div>
-  );
-
-  /* ───── UI ───── */
   return (
-    <main style={styles.bg}>
-      <h1 style={styles.h1}>🎁 Invita &amp; Canjea</h1>
+    <main className="min-h-screen bg-gradient-to-br from-[#141e30] to-[#243b55] text-white p-6">
+      <div className="max-w-3xl mx-auto space-y-10">
 
-      {/* quién me invitó */}
-      {invitador && (
-        <section style={styles.card}>
-          <h3 style={styles.cardTitle}>Fuiste invitado por</h3>
-          <p style={{fontWeight:"bold",color:"#facc15",fontSize:18}}>{invitador}</p>
+        {/* HEADER */}
+        <header className="text-center space-y-2">
+          <h1 className="text-3xl font-bold">🎁 Bonos y Recompensas</h1>
+          <p className="text-gray-300">Comparte tu enlace, canjea códigos y gana más.</p>
+        </header>
+
+        {/* MI CÓDIGO */}
+        <section className="glass-card text-center space-y-4">
+          <p>Tu código:</p>
+          <h2 className="text-2xl font-extrabold text-yellow-300">{miCodigo}</h2>
+
+          <div className="flex flex-wrap justify-center gap-3">
+            <button onClick={copiar} className="btn3d-gold">
+              {copiado ? "✅ Copiado" : "📋 Copiar enlace"}
+            </button>
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent("Únete a CartAI 👉 "+linkFull)}`}
+              target="_blank" rel="noreferrer" className="btn3d-green"
+            >WhatsApp</a>
+            <a
+              href={`https://t.me/share/url?url=${encodeURIComponent(linkFull)}&text=${encodeURIComponent("¡Gana con CartAI! 🚀")}`}
+              target="_blank" rel="noreferrer" className="btn3d-cyan"
+            >Telegram</a>
+            <a
+              href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(linkFull)}`}
+              target="_blank" rel="noreferrer" className="btn3d-blue"
+            >Facebook</a>
+          </div>
         </section>
-      )}
 
-      {/* mi código */}
-      <section style={styles.card}>
-        <p>Tu código:</p>
-        <h2 style={styles.code}>{miCodigo}</h2>
-        <button onClick={copiarLink} style={styles.btn}>
-          {copiado?"✅ Copiado":"📎 Copiar enlace"}
-        </button>
-        {share}
-      </section>
+        {/* INVITADOR */}
+        {yaTieneRef
+          ? (
+            <section className="glass-card text-center">
+              <p>Te invitó:</p>
+              <h3 className="text-xl font-bold text-green-400">{miInvitador}</h3>
+            </section>
+          )
+          : (
+            <section className="glass-card space-y-4">
+              <h3 className="text-xl font-semibold">Canjear código de invitador</h3>
+              <input
+                value={redeemInput}
+                onChange={e=>setRedeemInput(e.target.value.toUpperCase())}
+                placeholder="Código invitador"
+                className="inputGlass uppercase"
+              />
+              {redeemMsg && <p className="text-sm">{redeemMsg}</p>}
+              <button onClick={canjearInvitador} className="btn3d-green w-full">
+                Canjear invitación
+              </button>
+            </section>
+          )
+        }
 
-      {/* canjear invitación */}
-      {!yaTieneReferido && (
-        <section style={styles.card}>
-          <h3 style={styles.cardTitle}>Canjear código de invitación</h3>
+        {/* PROMO */}
+        <section className="glass-card space-y-4">
+          <h3 className="text-xl font-semibold">Canjear código promocional</h3>
           <input
-            value={redeemInput}
-            onChange={e=>setRedeemInput(e.target.value.toUpperCase())}
-            placeholder="Código"
-            style={styles.input}
+            value={promoInput}
+            onChange={e=>setPromoInput(e.target.value.toUpperCase())}
+            placeholder="Código promo"
+            className="inputGlass uppercase"
           />
-          {redeemMsg && <p>{redeemMsg}</p>}
-          <button onClick={canjearReferido} style={styles.btn}>Redimir</button>
+          {promoMsg && <p className="text-sm">{promoMsg}</p>}
+          <button onClick={canjearPromo} className="btn3d-purple w-full">
+            Canjear bono
+          </button>
         </section>
-      )}
 
-      {/* promo */}
-      <section style={styles.card}>
-        <h3 style={styles.cardTitle}>Canjear código promocional</h3>
-        <input
-          value={promoInput}
-          onChange={e=>setPromoInput(e.target.value.toUpperCase())}
-          placeholder="Código promo"
-          style={styles.input}
-        />
-        {promoMsg && <p>{promoMsg}</p>}
-        <button onClick={canjearPromo} style={styles.btn}>Canjear</button>
-      </section>
-
-      {/* referidos */}
-      <section style={styles.card}>
-        <h3 style={styles.cardTitle}>Mis referidos</h3>
-        {referidos.length===0
-          ? <p style={{opacity:.6}}>Aún sin referidos.</p>
-          : <ul style={{listStyle:"none",padding:0}}>
-              {referidos.map((r,i)=>(
-                <li key={i} style={styles.referidoItem}>
-                  <span>{r.nombre}</span>
-                  <span style={{fontSize:13}}>
-                    {r.paqueteActivo?"🟢 Activo":r.iaActiva?"🟡 Solo IA":"🔴 Inactivo"}
-                  </span>
-                </li>
-              ))}
-            </ul>}
-      </section>
+        {/* REFERIDOS */}
+        <section>
+          <h3 className="text-xl font-semibold mb-3">Tus referidos</h3>
+          {referidos.length===0
+            ? <p className="text-gray-400">Aún sin referidos.</p>
+            : (
+              <ul className="space-y-3">
+                {referidos.map((r,i)=>(
+                  <li key={i} className="glass-row flex justify-between">
+                    <span className="font-bold">{r.nombre ?? "Sin nombre"}</span>
+                    <span className="text-sm">
+                      {r.paquetes ? "🟢 Activo"
+                        : r.iaActiva ? "🟡 Solo IA"
+                        : "🔴 Inactivo"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+        </section>
+      </div>
     </main>
   );
 }
 
-/* ───── estilos ───── */
-const styles = {
-  bg:{
-    minHeight:"100vh",
-    padding:"50px 20px 80px",
-    background:"linear-gradient(135deg,#0f172a,#1e293b 40%,#065f46)",
-    backgroundSize:"600% 600%",
-    animation:"floatBg 30s linear infinite",
-    color:"#fff",
-    display:"flex",
-    flexDirection:"column",
-    alignItems:"center",
-  },
-  h1:{fontSize:"2rem",fontWeight:800,marginBottom:24,textAlign:"center"},
-  card:{
-    backdropFilter:"blur(12px)",
-    background:"rgba(255,255,255,.05)",
-    padding:20,borderRadius:20,
-    boxShadow:"0 8px 18px #000a",
-    marginBottom:30,width:"100%",maxWidth:500,textAlign:"center"
-  },
-  cardTitle:{fontSize:18,fontWeight:600,marginBottom:12},
-  code:{fontSize:24,fontWeight:"bold",color:"#facc15",marginBottom:10},
-  input:{
-    width:"100%",padding:10,borderRadius:10,border:"none",marginBottom:10,
-    background:"rgba(255,255,255,.1)",color:"#fff",fontSize:16,textAlign:"center"
-  },
-  btn:{
-    padding:"10px 24px",
-    background:"linear-gradient(90deg,#38bdf8,#0ea5e9)",
-    color:"#fff",border:"none",borderRadius:16,
-    fontWeight:700,fontSize:"1rem",cursor:"pointer",marginTop:10
-  },
-  shareWrap:{
-    marginTop:12,display:"flex",justifyContent:"center",flexWrap:"wrap",gap:10
-  },
-  shareBtn:{
-    background:"#0ea5e9",color:"#fff",padding:"6px 12px",
-    borderRadius:8,fontWeight:600,fontSize:13,textDecoration:"none"
-  },
-  referidoItem:{
-    background:"rgba(255,255,255,0.05)",
-    padding:"10px 14px",margin:"6px 0",borderRadius:10,
-    display:"flex",justifyContent:"space-between"
-  }
-};
+/* === Estilos glass y botones 3D === */
+const css=`
+.glass-card{backdrop-filter:blur(10px);background:rgba(255,255,255,.05);border-radius:20px;padding:24px;box-shadow:0 8px 18px #000a;}
+.glass-row{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);padding:16px;border-radius:14px;}
+.inputGlass{width:100%;background:rgba(255,255,255,.15);padding:12px;border-radius:10px;}
+.btn3d-gold{background:#facc15;color:#000;font-weight:700;padding:10px 20px;border-radius:10px;transition:all .2s ease;box-shadow:0 6px #d4af37;}
+.btn3d-green{background:#22c55e;color:#fff;font-weight:700;padding:10px 20px;border-radius:10px;transition:all .2s ease;box-shadow:0 6px #15803d;}
+.btn3d-cyan{background:#06b6d4;color:#fff;font-weight:700;padding:10px 20px;border-radius:10px;transition:all .2s ease;box-shadow:0 6px #0e7490;}
+.btn3d-blue{background:#3b82f6;color:#fff;font-weight:700;padding:10px 20px;border-radius:10px;transition:all .2s ease;box-shadow:0 6px #1d4ed8;}
+.btn3d-purple{background:#a855f7;color:#fff;font-weight:700;padding:10px 20px;border-radius:10px;transition:all .2s ease;box-shadow:0 6px #7e22ce;}
+.btn3d-gold:active,.btn3d-green:active,.btn3d-cyan:active,.btn3d-blue:active,.btn3d-purple:active{transform:scale(0.95);}
+`;
+if (typeof document !== "undefined" && !document.getElementById("refGlassCss")) {
+  const style = document.createElement("style");
+  style.id = "refGlassCss";
+  style.innerHTML = css;
+  document.head.appendChild(style);
+}
