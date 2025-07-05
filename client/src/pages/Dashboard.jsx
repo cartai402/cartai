@@ -1,61 +1,39 @@
-// Dashboard.jsx
-import React, { useEffect, useState } from "react";
-import { getDatabase, ref, onValue, update } from "firebase/database";
-import { getAuth, signOut } from "firebase/auth";
-import { useNavigate } from "react-router-dom";
-import logo from "../assets/logor.png";                // ← insignia
+import React, { useEffect, useState } from 'react';
+import { getDatabase, ref, onValue, update } from 'firebase/database';
+import { getAuth, signOut } from 'firebase/auth';
+import { useNavigate } from 'react-router-dom';
+import logo from '../assets/logor.png'; // ← Logo de la empresa
 
-const COP = n => n?.toLocaleString("es-CO") ?? "0";
-
-/* ---------- helpers niveles ---------- */
-const niveles = [
-  { name: "Explorador IA",      min: 0 },
-  { name: "Inversionista Novato",  min: 10_000 },
-  { name: "Estratega CartAI",      min: 200_000 },
-  { name: "Inversionista Élite",   min: 500_000 },
-  { name: "Embajador Digital",     min: 1_000_000 },
-  { name: "Leyenda CartAI",        min: 2_000_000 },
-];
-const getLevelInfo = score => {
-  let idx = 0;
-  while (idx < niveles.length - 1 && score >= niveles[idx + 1].min) idx++;
-  const level = niveles[idx];
-  const nextMin = idx < niveles.length - 1 ? niveles[idx + 1].min : level.min;
-  const pct = idx === niveles.length - 1 ? 100 : Math.min(100, (score - level.min) * 100 / (nextMin - level.min));
-  return { level: idx + 1, name: level.name, pct, nextMin };
-};
-/* ------------------------------------- */
+const COP = n => n?.toLocaleString('es-CO') ?? '0';
 
 export default function Dashboard() {
-  const auth      = getAuth();
-  const navigate  = useNavigate();
-  const db        = getDatabase();
-  const usr       = auth.currentUser;
+  const auth = getAuth();
+  const navigate = useNavigate();
+  const db = getDatabase();
+  const usr = auth.currentUser;
 
-  const [data, setData]                 = useState(null);
-  const [showIA, setShowIA]             = useState(false);
+  const [data, setData] = useState(null);
+  const [showIA, setShowIA] = useState(false);
   const [showFelicidades, setShowFelicidades] = useState(null);
 
-  /* ---------------- carga usuario ---------------- */
   useEffect(() => {
     if (!usr) return;
-    const userRef = ref(db, "usuarios/" + usr.uid);
+    const userRef = ref(db, 'usuarios/' + usr.uid);
     onValue(userRef, snap => {
       const d = snap.val();
       setData(d);
       if (!d?.iaActiva) setShowIA(true);
 
-      /* activar paquetes recién comprados */
       if (d?.paquetes) {
         Object.entries(d.paquetes).forEach(([id, p]) => {
           if (!p.iniciado) {
             const nuevaGanancia = (d.ganancias ?? 0) + (p.ganDia ?? 0);
-            update(ref(db, "usuarios/" + usr.uid), {
+            update(ref(db, 'usuarios/' + usr.uid), {
               ganancias: nuevaGanancia,
-              [`paquetes/${id}/iniciado`]      : true,
-              [`paquetes/${id}/reclamado`]     : true,
-              [`paquetes/${id}/ultimoReclamo`] : Date.now(),
-              [`paquetes/${id}/diasRestantes`] : p.dur - 1,
+              [`paquetes/${id}/iniciado`]: true,
+              [`paquetes/${id}/reclamado`]: true,
+              [`paquetes/${id}/ultimoReclamo`]: Date.now(),
+              [`paquetes/${id}/diasRestantes`]: p.dur - 1,
             });
             setShowFelicidades(p.nombre);
           }
@@ -64,83 +42,68 @@ export default function Dashboard() {
     });
   }, [usr]);
 
-  /* ---------------- acciones ---------------- */
   const activarIA = () => {
-    update(ref(db, "usuarios/" + usr.uid), {
-      iaActiva        : true,
-      iaSaldo         : 0,
-      iaDiasRestantes : 60,
-      iaUltimoReclamo : 0
+    update(ref(db, 'usuarios/' + usr.uid), {
+      iaActiva: true,
+      iaSaldo: 0,
+      iaDiasRestantes: 60,
+      iaReclamado: false,
+      iaUltimoReclamo: 0
     });
     setShowIA(false);
-    setShowFelicidades({ tipo: "ia" });
+    setShowFelicidades({ tipo: 'ia' });
   };
 
   const reclamar = () => {
-    const hoy    = new Date().toDateString();
-    const ultima = new Date(data.iaUltimoReclamo ?? 0).toDateString();
-    if (hoy === ultima || data.iaDiasRestantes <= 0) return;
+    const hoy = new Date();
+    const ultima = new Date(data.iaUltimoReclamo ?? 0);
+    if (!data || data.iaDiasRestantes <= 0 || ultima.toDateString() === hoy.toDateString()) return;
 
-    update(ref(db, "usuarios/" + usr.uid), {
-      iaSaldo         : (data.iaSaldo ?? 0) + 1000,
-      iaDiasRestantes : data.iaDiasRestantes - 1,
-      iaUltimoReclamo : Date.now(),
+    const nuevoSaldo = (data.iaSaldo ?? 0) + 1000;
+    update(ref(db, 'usuarios/' + usr.uid), {
+      iaSaldo: nuevoSaldo,
+      iaDiasRestantes: data.iaDiasRestantes - 1,
+      iaUltimoReclamo: Date.now(),
     });
   };
 
   const reclamarPaquete = (id, p) => {
-    const hoy    = new Date().toDateString();
-    const ultima = new Date(p.ultimoReclamo ?? 0).toDateString();
-    if (hoy === ultima || p.diasRestantes <= 0) return;
+    const hoy = new Date();
+    const ultima = new Date(p.ultimoReclamo ?? 0);
+    if (!data?.paquetes?.[id] || p.diasRestantes <= 0 || ultima.toDateString() === hoy.toDateString()) return;
 
-    update(ref(db, "usuarios/" + usr.uid), {
-      ganancias                       : (data.ganancias ?? 0) + (p.ganDia ?? 0),
+    const nuevaGanancia = (data.ganancias ?? 0) + (p.ganDia ?? 0);
+    update(ref(db, 'usuarios/' + usr.uid), {
+      ganancias: nuevaGanancia,
+      [`paquetes/${id}/reclamado`]: true,
       [`paquetes/${id}/ultimoReclamo`]: Date.now(),
       [`paquetes/${id}/diasRestantes`]: p.diasRestantes - 1,
     });
   };
 
-  const logout = () => { signOut(auth); navigate("/"); };
+  const logout = () => {
+    signOut(auth);
+    navigate('/');
+  };
 
   if (!data) return <Loader />;
 
-  /* ---------- nivel y progreso ---------- */
-  const score = (data.invertido ?? 0) + (data.ganancias ?? 0) + (data.iaSaldo ?? 0);
-  const { level, name, pct, nextMin } = getLevelInfo(score);
-
   return (
     <div style={styles.bg}>
-      {/* nav */}
+      {/* 🟡 Barra de navegación con logo */}
       <div style={styles.navWrap}>
+        <img src={logo} alt="CartAI Logo" style={styles.logoNav} />
         <NavBtn emoji="🏠" text="Dashboard" to="/dashboard" />
-        <NavBtn emoji="💼" text="Invertir"      to="/invest" />
-        <NavBtn emoji="💸" text="Retirar"       to="/withdraw" />
-        <NavBtn emoji="🎁" text="Bonos & Recomp." to="/referrals" />
-        <NavBtn emoji="🎮" text="Jugar"         to="/game" />
+        <NavBtn emoji="💼" text="Invertir" to="/invest" />
+        <NavBtn emoji="💸" text="Retirar" to="/withdraw" />
+        <NavBtn emoji="🎁" text="Bonos y Recompensas" to="/referrals" />
+        <NavBtn emoji="🎮" text="Jugar" to="/game" />
         <button onClick={logout} style={styles.logout}>Cerrar sesión</button>
       </div>
 
-      {/* saludo */}
-      <h1 style={styles.h1}>Bienvenido, {usr.displayName?.split("|")[0] ?? "Usuario"} 👋</h1>
+      <h1 style={styles.h1}>Bienvenido, {usr.displayName?.split('|')[0] ?? 'Usuario'} 👋</h1>
       <p style={styles.subtitle}>Resumen de tu inversión</p>
 
-      {/* ---------- tarjeta NIVEL ---------- */}
-      <Card>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <img src={logo} alt="nivel" style={{ width: 46, filter: "drop-shadow(0 2px 6px #000a)" }} />
-          <div>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
-              Nivel {level}: {name}
-            </h3>
-            <p style={{ margin: 0, fontSize: 13, opacity: .75 }}>
-              Score: ${COP(score)} {level < 6 && <>• Próximo nivel: ${COP(nextMin)}</>}
-            </p>
-          </div>
-        </div>
-        <Progress pct={pct} />
-      </Card>
-
-      {/* ---------- IA gratuita ---------- */}
       {data.iaActiva && (
         <Card>
           <h2 style={styles.cardTitle}>🤖 IA gratuita</h2>
@@ -152,30 +115,25 @@ export default function Dashboard() {
             disabled={new Date(data.iaUltimoReclamo ?? 0).toDateString() === new Date().toDateString()}
             style={{
               ...styles.cta,
-              backgroundColor:
-                new Date(data.iaUltimoReclamo ?? 0).toDateString() === new Date().toDateString()
-                  ? "#555"
-                  : "#00c853",
+              backgroundColor: new Date(data.iaUltimoReclamo ?? 0).toDateString() === new Date().toDateString() ? '#555' : '#00c853'
             }}
           >
             {new Date(data.iaUltimoReclamo ?? 0).toDateString() === new Date().toDateString()
-              ? "Reclamado hoy"
-              : "Reclamar $1.000 bono"}
+              ? 'Reclamado hoy'
+              : 'Reclamar $1.000 bono'}
           </button>
         </Card>
       )}
 
-      {/* métricas */}
       <div style={styles.metricsWrap}>
         <Metric label="Invertido" val={data.invertido ?? 0} />
         <Metric label="Ganancias" val={data.ganancias ?? 0} />
         <Metric label="Bonos" val={data.iaSaldo ?? 0} />
       </div>
 
-      {/* paquetes */}
       <h3 style={styles.section}>📦 Paquetes activos</h3>
-      {data.paquetes ? (
-        Object.entries(data.paquetes).map(([id, p]) => (
+      {data.paquetes
+        ? Object.entries(data.paquetes).map(([id, p]) => (
           <Card key={id}>
             <h3>{p.nombre}</h3>
             <p><b>Inversión:</b> ${COP(p.valor)}</p>
@@ -187,23 +145,18 @@ export default function Dashboard() {
               disabled={new Date(p.ultimoReclamo ?? 0).toDateString() === new Date().toDateString()}
               style={{
                 ...styles.cta,
-                backgroundColor:
-                  new Date(p.ultimoReclamo ?? 0).toDateString() === new Date().toDateString()
-                    ? "#555"
-                    : "#2196f3",
+                backgroundColor: new Date(p.ultimoReclamo ?? 0).toDateString() === new Date().toDateString() ? '#555' : '#2196f3'
               }}
             >
               {new Date(p.ultimoReclamo ?? 0).toDateString() === new Date().toDateString()
-                ? "Reclamado hoy"
+                ? 'Reclamado hoy'
                 : `Reclamar $${COP(p.ganDia)}`}
             </button>
           </Card>
         ))
-      ) : (
-        <p style={{ color: "#9ca3af" }}>Aún no tienes paquetes.</p>
-      )}
+        : <p style={{ color: '#9ca3af' }}>Aún no tienes paquetes.</p>
+      }
 
-      {/* modales */}
       {showIA && <ModalIA onClose={() => setShowIA(false)} onOk={activarIA} />}
       {showFelicidades && (
         <div style={styles.modalOverlay}>
@@ -212,9 +165,7 @@ export default function Dashboard() {
             <p style={{ marginTop: 10 }}>
               Has activado tu paquete <b>{showFelicidades.nombre ?? "o IA gratuita"}</b> correctamente.
             </p>
-            <button style={{ ...styles.cta, width: "100%" }} onClick={() => setShowFelicidades(null)}>
-              Entendido
-            </button>
+            <button style={{ ...styles.cta, width: '100%' }} onClick={() => setShowFelicidades(null)}>Entendido</button>
           </div>
         </div>
       )}
@@ -222,14 +173,21 @@ export default function Dashboard() {
   );
 }
 
-/* ---------- componentes auxiliares ---------- */
-const Loader = () => <div style={{ ...styles.bg, display: "flex", justifyContent: "center", alignItems: "center" }}>Cargando…</div>;
-
-const NavBtn = ({ emoji, text, to }) => (
-  <a href={to} style={styles.navBtn}><span style={{ fontSize: 20 }}>{emoji}</span> {text}</a>
+const Loader = () => (
+  <div style={{ ...styles.bg, justifyContent: 'center', alignItems: 'center' }}>
+    Cargando…
+  </div>
 );
 
-const Card = ({ children }) => <div style={styles.card}>{children}</div>;
+const NavBtn = ({ emoji, text, to }) => (
+  <a href={to} style={styles.navBtn}>
+    <span style={{ fontSize: 20 }}>{emoji}</span> {text}
+  </a>
+);
+
+const Card = ({ children }) => (
+  <div style={styles.card}>{children}</div>
+);
 
 const Metric = ({ label, val }) => (
   <Card>
@@ -239,8 +197,8 @@ const Metric = ({ label, val }) => (
 );
 
 const Progress = ({ pct }) => (
-  <div style={{ background: "#333", borderRadius: 8, overflow: "hidden", height: 14, margin: "10px 0" }}>
-    <div style={{ width: `${pct}%`, background: "linear-gradient(90deg,#ffe259,#ffa751)", height: "100%" }} />
+  <div style={{ background: '#333', borderRadius: 8, overflow: 'hidden', height: 14, margin: '10px 0' }}>
+    <div style={{ width: `${pct}%`, background: 'linear-gradient(90deg,#ffe259,#ffa751)', height: '100%' }} />
   </div>
 );
 
@@ -253,39 +211,68 @@ const ModalIA = ({ onClose, onOk }) => (
         Tienes acceso a la <b>IA gratuita</b> por 60 días.<br />
         Recibirás <b>$1.000 COP diarios</b> como bono de bienvenida.
       </p>
-      <button onClick={onOk} style={{ ...styles.cta, width: "100%", marginTop: 15 }}>Activar IA gratuita</button>
+      <button onClick={onOk} style={{ ...styles.cta, width: '100%', marginTop: 15 }}>Activar IA gratuita</button>
       <button onClick={onClose} style={styles.linkBtn}>Ahora no</button>
     </div>
   </div>
 );
 
-/* ---------- estilos ---------- */
 const styles = {
-  bg: { background: "#0a0f1e", minHeight: "100vh", color: "white", padding: 15 },
-  navWrap: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 25 },
+  bg: { background: '#0a0f1e', minHeight: '100vh', color: 'white', padding: 15 },
+  navWrap: { display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 25, alignItems: 'center' },
+  logoNav: {
+    width: 42,
+    marginRight: 10,
+    filter: 'drop-shadow(0 2px 6px #0008)',
+    borderRadius: 8
+  },
   navBtn: {
-    background: "#1d273b", padding: "10px 18px",
-    borderRadius: 12, color: "white", textDecoration: "none",
-    display: "flex", alignItems: "center", gap: 6, boxShadow: "3px 3px 6px #0007"
+    background: '#1d273b', padding: '10px 18px',
+    borderRadius: 12, color: 'white', textDecoration: 'none',
+    display: 'flex', alignItems: 'center', gap: 6,
+    boxShadow: '3px 3px 6px #0007'
   },
   logout: {
-    background: "#ff1744", border: "none", borderRadius: 12,
-    color: "white", padding: "10px 18px", fontWeight: "bold", boxShadow: "3px 3px 6px #0007"
+    background: '#ff1744', border: 'none', borderRadius: 12,
+    color: 'white', padding: '10px 18px', fontWeight: 'bold',
+    boxShadow: '3px 3px 6px #0007'
   },
   h1: { fontSize: 28, fontWeight: 600, margin: 0 },
   subtitle: { opacity: .8, marginBottom: 25 },
-
   card: {
-    background: "#152037", padding: 20, borderRadius: 15,
-    marginBottom: 20, boxShadow: "4px 4px 12px #000a"
+    background: '#152037',
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 20,
+    boxShadow: '4px 4px 12px #000a'
   },
   cardTitle: { marginTop: 0 },
-  cta: { border: "none", padding: "10px 18px", borderRadius: 12, fontWeight: "bold", color: "white", boxShadow: "2px 2px 6px #0007" },
-
-  metricsWrap: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 15 },
-  section: { margin: "25px 0 10px" },
-
-  modalOverlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,.8)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 9999 },
-  modalBox: { background: "#1d273b", padding: 30, borderRadius: 20, maxWidth: 320, textAlign: "center", boxShadow: "4px 4px 12px #000c" },
-  linkBtn: { background: "none", border: "none", color: "#9ca3af", textDecoration: "underline", cursor: "pointer", marginTop: 10 }
+  cta: {
+    border: 'none',
+    padding: '10px 18px',
+    borderRadius: 12,
+    fontWeight: 'bold',
+    color: 'white',
+    boxShadow: '2px 2px 6px #0007'
+  },
+  metricsWrap: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))',
+    gap: 15
+  },
+  section: { margin: '25px 0 10px' },
+  modalOverlay: {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)',
+    display: 'flex', justifyContent: 'center', alignItems: 'center',
+    zIndex: 9999
+  },
+  modalBox: {
+    background: '#1d273b',
+    padding: 30, borderRadius: 20, maxWidth: 320, textAlign: 'center',
+    boxShadow: '4px 4px 12px #000c'
+  },
+  linkBtn: {
+    background: 'none', border: 'none', color: '#9ca3af',
+    textDecoration: 'underline', cursor: 'pointer', marginTop: 10
+  }
 };
